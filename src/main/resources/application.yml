@@ -1,0 +1,33 @@
+spring:
+  main:
+    # 현재는 CLI 러너만 사용. 대시보드 단계에서 제거
+    web-application-type: none
+  datasource:
+    url: jdbc:h2:file:./data/blogstat
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+app:
+  mode: none
+  profile-dir: .playwright-profile
+  stat-url: https://blog.stat.naver.com/m/blog/daily/referer
+  collect:
+    base-url: https://blog.stat.naver.com
+    # 날짜 사이 지연(저빈도 수집)
+    min-delay-ms: 2000
+    max-delay-ms: 5000
+    # 타임아웃/429/5xx 재시도: 지수 백오프 + 풀 지터
+    max-retries: 3
+    base-backoff-ms: 1000
+    cap-backoff-ms: 30000
+    request-timeout-ms: 10000
+  explore:
+    output-dir: explore-output
+    # 로그인 완료까지 최대 대기(초)
+    login-timeout-sec: 300
+    # 첫 캡처 후 날짜를 직접 바꿔 볼 수 있는 추가 관찰 시간(초)
+    extra-observe-sec: 90

@@ -1,0 +1,32 @@
+{
+  "statusCode": 200,
+  "message": "",
+  "result": {
+    "statDataList": [
+      {
+        "dataId": "refererTotal",
+        "data": {
+          "columnInfo": ["date", "referrerDomain", "referrerSearchEngine", "cv", "cv_p"],
+          "rows": {
+            "date": ["2026-01-02", "2026-01-02", "2026-01-02"],
+            "cv": [60, 30, 10],
+            "referrerSearchEngine": ["0", "1", "0"],
+            "referrerDomain": ["도메인A_모바일", "검색B_모바일", "사이트C"],
+            "cv_p": [60.0, 30.0, 10.0]
+          }
+        },
+        "utime": "2026-01-03T00:10:00"
+      },
+      {
+        "dataId": "refererTotalCount",
+        "data": { "value": 100 },
+        "utime": null
+      },
+      {
+        "dataId": "dashboard",
+        "data": { "value": { "dailyCv": 120, "isToday": false } },
+        "utime": null
+      }
+    ]
+  }
+}

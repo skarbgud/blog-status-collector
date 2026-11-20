@@ -1,0 +1,49 @@
+package com.example.blogstat.collector;
+
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.List;
+
+/**
+ * `--app.mode=collect [--from=YYYY-MM-DD] [--to=YYYY-MM-DD]`
+ * 기본값은 어제 하루. 저장(5단계) 전이라 지금은 결과를 콘솔에 출력만 한다.
+ */
+@Component
+@ConditionalOnProperty(name = "app.mode", havingValue = "collect")
+public class CollectRunner implements ApplicationRunner {
+
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
+    private final RefererCollector collector;
+
+    public CollectRunner(RefererCollector collector) {
+        this.collector = collector;
+    }
+
+    @Override
+    public void run(ApplicationArguments args) {
+        LocalDate yesterday = LocalDate.now(KST).minusDays(1);
+        LocalDate from = option(args, "from", yesterday);
+        LocalDate to = option(args, "to", from);
+
+        List<RefererDay> days = collector.collect(from, to);
+        for (RefererDay day : days) {
+            System.out.println("== " + day.date() + (day.today() ? " (오늘, 집계 중)" : "")
+                    + " 합계 " + day.sumVisits() + " / API 합계 " + day.totalCount());
+            for (RefererRow row : day.rows()) {
+                System.out.printf("   %-24s %5d  %6.2f%%%s%n", row.referrer(), row.visits(), row.ratio(),
+                        row.searchEngine() ? "  [검색]" : "");
+            }
+        }
+    }
+
+    private static LocalDate option(ApplicationArguments args, String name, LocalDate defaultValue) {
+        List<String> values = args.getOptionValues(name);
+        return values == null || values.isEmpty() ? defaultValue : LocalDate.parse(values.get(0));
+    }
+}
