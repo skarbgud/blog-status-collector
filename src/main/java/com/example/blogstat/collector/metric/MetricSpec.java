@@ -18,10 +18,11 @@ import java.util.List;
  * @param pendingColumn 하루 단위 지표에서, 이 컬럼의 합이 0이면 네이버가 아직 집계하지 않은 날로 보고 저장하지 않는 컬럼.
  *                   저장하지 않으면 다음 실행에서 다시 받는다. 없으면 null
  * @param perPost    게시글마다 한 번씩 부르는 지표(요청에 contentId를 붙이고, 행 구분은 게시글 번호)
+ * @param perHour    시간대(0~23시)마다 한 번씩 부르는 지표(요청에 hour를 붙이고, 행 구분은 두 자리 시간)
  */
 public record MetricSpec(String id, String label, Kind kind, String path, String timeDim, String blockId,
                          String keyColumn, List<String> indexKeys, String extraQuery, String pendingColumn,
-                         boolean perPost) {
+                         boolean perPost, boolean perHour) {
 
     public enum Kind {
         /** 응답 rows.date가 날짜이고 한 번에 15일(또는 15주)치가 온다. */
@@ -53,34 +54,39 @@ public record MetricSpec(String id, String label, Kind kind, String path, String
 
     /** 같은 요청으로 함께 받을 수 있는 지표인지 가르는 값. 시간 단위와 추가 쿼리까지 같아야 한다. */
     public String requestKey() {
-        return path + "|" + timeDim + "|" + extraQuery + "|" + perPost;
+        return path + "|" + timeDim + "|" + extraQuery + "|" + perPost + "|" + perHour;
     }
 
     static MetricSpec series(String id, String label, String path, String timeDim, String blockId) {
-        return new MetricSpec(id, label, Kind.SERIES, path, timeDim, blockId, null, List.of(), "", null, false);
+        return new MetricSpec(id, label, Kind.SERIES, path, timeDim, blockId, null, List.of(), "", null, false, false);
     }
 
     static MetricSpec day(String id, String label, String path, String blockId, String keyColumn,
                           List<String> indexKeys, String extraQuery) {
-        return new MetricSpec(id, label, Kind.DAY, path, "DATE", blockId, keyColumn, indexKeys, extraQuery, null, false);
+        return new MetricSpec(id, label, Kind.DAY, path, "DATE", blockId, keyColumn, indexKeys, extraQuery, null, false, false);
     }
 
     /** 주 단위로 한 번씩 받는 하루 단위 지표(timeDimension=WEEK). */
     static MetricSpec week(String id, String label, String path, String blockId, String keyColumn) {
-        return new MetricSpec(id, label, Kind.DAY, path, "WEEK", blockId, keyColumn, List.of(), "", null, false);
+        return new MetricSpec(id, label, Kind.DAY, path, "WEEK", blockId, keyColumn, List.of(), "", null, false, false);
     }
 
     static MetricSpec value(String id, String label, String path, String timeDim, String blockIds) {
-        return new MetricSpec(id, label, Kind.VALUE, path, timeDim, blockIds, null, List.of(), "", null, false);
+        return new MetricSpec(id, label, Kind.VALUE, path, timeDim, blockIds, null, List.of(), "", null, false, false);
     }
 
     /** 이 컬럼의 합이 0인 날은 집계 전이라 저장하지 않는 지표로 바꾼 사본. */
     MetricSpec pendingWhenZero(String column) {
-        return new MetricSpec(id, label, kind, path, timeDim, blockId, keyColumn, indexKeys, extraQuery, column, perPost);
+        return new MetricSpec(id, label, kind, path, timeDim, blockId, keyColumn, indexKeys, extraQuery, column, perPost, perHour);
     }
 
     /** 게시글마다 부르는 지표로 바꾼 사본. */
     MetricSpec forEachPost() {
-        return new MetricSpec(id, label, kind, path, timeDim, blockId, keyColumn, indexKeys, extraQuery, pendingColumn, true);
+        return new MetricSpec(id, label, kind, path, timeDim, blockId, keyColumn, indexKeys, extraQuery, pendingColumn, true, perHour);
+    }
+
+    /** 시간대(0~23시)마다 부르는 지표로 바꾼 사본. */
+    MetricSpec forEachHour() {
+        return new MetricSpec(id, label, kind, path, timeDim, blockId, keyColumn, indexKeys, extraQuery, pendingColumn, perPost, true);
     }
 }

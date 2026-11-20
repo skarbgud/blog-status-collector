@@ -314,6 +314,73 @@ class MetricCollectJobTest {
     }
 
     @Test
+    void 시간대별_추이는_0시부터_23시까지_시간마다_창_수만큼_부른다() {
+        MetricCollectJob.Plan plan = new MetricCollectJob.Plan(List.of(MetricSpecs.HOUR_TREND),
+                LocalDate.of(2026, 10, 22), TO, false);
+
+        job.execute(http(), plan);
+
+        assertEquals(48, urls.size()); // 24시간 x 창 2개
+        assertTrue(urls.get(0).contains("/api/blog/user/hour/hourCv?") && urls.get(0).contains("hour=00&")
+                && urls.get(0).contains("startDate=2026-11-20"));
+        assertTrue(urls.get(1).contains("hour=00&") && urls.get(1).contains("startDate=2026-11-05"));
+        assertTrue(urls.get(47).contains("hour=23&"));
+        // 행 구분은 두 자리 시간이라 같은 날짜의 다른 시간대 행을 지우지 않는다.
+        verify(service, org.mockito.Mockito.times(2)).replace(org.mockito.ArgumentMatchers.eq("HOUR_TREND"), any(),
+                org.mockito.ArgumentMatchers.eq("07"));
+    }
+
+    @Test
+    void 이미_받은_시간대는_건너뛴다() {
+        when(service.keysWith("HOUR_TREND", TO)).thenReturn(Set.of("00", "01", "02"));
+        MetricCollectJob.Plan plan = new MetricCollectJob.Plan(List.of(MetricSpecs.HOUR_TREND), TO, TO, false);
+
+        job.execute(http(), plan);
+
+        assertEquals(21, urls.size());
+        assertTrue(urls.get(0).contains("hour=03&")); // 앞자리 0을 자르지 않는다(hour=3이면 0~9시가 0으로 온다)
+    }
+
+    @Test
+    void 게시글이_HTTP_400이면_실패로_세지_않고_조회_불가_표시를_남긴다() {
+        when(service.postIds(any(), any())).thenReturn(new java.util.TreeSet<>(Set.of("111", "222")));
+        StatHttp http = (url, label) -> {
+            if (url.contains("contentId=222")) {
+                throw new IllegalStateException(label + " 수집 실패: HTTP 400");
+            }
+            return http().get(url, label);
+        };
+        MetricCollectJob.Plan plan = new MetricCollectJob.Plan(List.of(MetricSpecs.ARTICLE_CV, MetricSpecs.ARTICLE_INFO),
+                TO, TO, false);
+        org.mockito.ArgumentCaptor<List<com.example.blogstat.domain.MetricRow>> rows =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+
+        MetricCollectJob.Result result = job.execute(http, plan);
+
+        assertEquals(0, result.failures());
+        // 정상인 111은 그대로 저장된다.
+        assertEquals(1, result.saved().get("ARTICLE_CV"));
+        verify(service).replace(org.mockito.ArgumentMatchers.eq("ARTICLE_INFO"), rows.capture(),
+                org.mockito.ArgumentMatchers.eq("222"));
+        // 111의 정상 정보 저장도 같은 메서드를 쓰므로, 222용 표시 행만 골라 확인한다.
+        assertTrue(rows.getAllValues().stream().flatMap(List::stream)
+                .anyMatch(r -> r.getRowKey().equals("222") && r.getPayload().equals("{\"unavailable\":true}")));
+    }
+
+    @Test
+    void 조회_불가_표시가_있는_게시글은_같은_날_다시_부르지_않는다() {
+        when(service.postIds(any(), any())).thenReturn(new java.util.TreeSet<>(Set.of("111", "222")));
+        when(service.keysWith("ARTICLE_INFO", TO)).thenReturn(Set.of("222")); // 표시만 있고 시계열은 없다
+        MetricCollectJob.Plan plan = new MetricCollectJob.Plan(List.of(MetricSpecs.ARTICLE_CV, MetricSpecs.ARTICLE_INFO),
+                TO, TO, false);
+
+        job.execute(http(), plan);
+
+        assertEquals(1, urls.size());
+        assertTrue(urls.get(0).contains("contentId=111"));
+    }
+
+    @Test
     void 이미_받은_게시글은_건너뛴다() {
         when(service.postIds(any(), any())).thenReturn(new java.util.TreeSet<>(Set.of("111", "222")));
         when(service.keysWith("ARTICLE_CV", TO)).thenReturn(Set.of("111"));

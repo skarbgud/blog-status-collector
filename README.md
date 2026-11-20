@@ -42,14 +42,14 @@ Java 17 · Spring Boot 3.5 · Spring Data JPA · H2 · Playwright for Java · JU
 | 로그인 (수동, "로그인 상태 유지" 체크) | `scripts\login.cmd` |
 | 매일 자동 수집 (상주) | `scripts\scheduler.cmd` |
 | 검색어만 길게 수집 (기본 30일, 받은 날짜는 건너뜀) | `scripts\collect-queries.cmd [일수] [--force]` |
-| 나머지 지표 전부 수집 (조회수·방문자·시간대·성별연령·기기·국가·순위·게시글별 조회수, 기본 30일, 처음엔 약 25분) | `scripts\collect-metrics.cmd [일수] [--force]` |
+| 나머지 지표 전부 수집 (조회수·방문자·시간대·성별연령·기기·국가·순위·게시글별 조회수, 기본 30일, 처음엔 약 30분) | `scripts\collect-metrics.cmd [일수] [--force]` |
 | 대시보드 http://127.0.0.1:8080 | `scripts\dashboard.cmd` |
 
 그 밖의 모드(`collect --from --to`, `publish`, `explore`)와 세부 규칙은 [CLAUDE.md](CLAUDE.md)에 있다.
 
 ## 테스트
 
-`./gradlew test`, 182개. 파서는 실제 응답을 저장한 픽스처로 검증하고, 저장 멱등성과 검색어 합치기는 `@DataJpaTest`로, 스냅샷 내보내기/다시 올리기는 왕복 테스트로, 대시보드 프로필은 실제로 띄우는 스모크 테스트로 확인한다. 이 스모크 테스트가 Spring이 생성자를 고르지 못해 대시보드가 뜨지 않던 결함을 잡았다.
+`./gradlew test`, 186개. 파서는 실제 응답을 저장한 픽스처로 검증하고, 저장 멱등성과 검색어 합치기는 `@DataJpaTest`로, 스냅샷 내보내기/다시 올리기는 왕복 테스트로, 대시보드 프로필은 실제로 띄우는 스모크 테스트로 확인한다. 이 스모크 테스트가 Spring이 생성자를 고르지 못해 대시보드가 뜨지 않던 결함을 잡았다.
 
 ## 개인 데이터
 

@@ -291,6 +291,16 @@
       </div>
     </div>
 
+    <div class="panel">
+      <h2>시간대별 일별 추이<span class="sub" id="m-ht-sub"></span></h2>
+      <div class="post-pick">
+        <select id="m-ht-select" aria-label="시간대 선택" style="flex:0 0 auto;min-width:110px"></select>
+        <span class="post-info">고른 시간대의 하루 조회수입니다. 위 '시간대별 조회수'는 기간 평균, 여기는 날짜별 변화입니다.</span>
+      </div>
+      <div class="chart-box short"><canvas id="m-ht"></canvas></div>
+      <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
+    </div>
+
     <div class="grid2">
       <div class="panel">
         <h2>기기별 분포</h2>
@@ -701,6 +711,7 @@
   let demoMode = 'DEMO';   // 성별·연령 차트가 보여 주는 지표
   let lastView = null;     // 구분 버튼·게시글 선택으로 다시 그릴 때 쓰는 마지막 응답
   let selectedPost = null; // 게시글 추이에서 고른 게시글 번호
+  let selectedHour = null; // 시간대 추이에서 고른 시간(두 자리)
   const postId = (uri) => ((uri || '').replace(/\/+$/, '').split('/').pop() || '');
 
   function isoDays(from, to) {
@@ -981,6 +992,44 @@
     }
   }
 
+  function renderHourTrend(view) {
+    if (!view) return;
+    const dates = isoDays(view.from, view.to);
+    const inRange = new Set(dates);
+    const byHour = new Map(); // 시간 → 날짜 → {cv, cv_p}
+    for (const it of view.items) {
+      if (it.metric !== 'HOUR_TREND' || !inRange.has(it.date)) continue;
+      if (!byHour.has(it.key)) byHour.set(it.key, new Map());
+      byHour.get(it.key).set(it.date, it.values);
+    }
+    const select = $('m-ht-select');
+    select.replaceChildren();
+    const hours = [...byHour.keys()].sort();
+    if (hours.length === 0) {
+      $('m-ht-sub').textContent = '';
+      draw('m-ht', false, null);
+      return;
+    }
+    const totals = new Map(hours.map((h) => [h, sum([...byHour.get(h).values()].map((v) => v.cv))]));
+    if (!hours.includes(selectedHour)) selectedHour = hours.slice().sort((a, b) => totals.get(b) - totals.get(a))[0];
+    for (const h of hours) {
+      const o = document.createElement('option');
+      o.value = h;
+      o.textContent = h + '시 (' + nf.format(totals.get(h)) + '회)';
+      if (h === selectedHour) o.selected = true;
+      select.appendChild(o);
+    }
+    const days = byHour.get(selectedHour);
+    // cv_p는 15일 창 안에서의 비율이라 하루 중 비율이 아니다. cv_daily(그 날 전체)로 직접 계산한다.
+    const shares = [...days.values()].filter((v) => v.cv_daily > 0).map((v) => v.cv * 100 / v.cv_daily);
+    $('m-ht-sub').textContent = selectedHour + '시 · 기간 합계 ' + nf.format(totals.get(selectedHour)) + '회'
+      + (shares.length ? ' · 하루 중 평균 ' + nf1.format(sum(shares) / shares.length) + '%' : '');
+    draw('m-ht', true, { type: 'bar', data: { labels: dates.map((d) => d.slice(5)), datasets: [
+      { label: selectedHour + '시 조회수', data: dates.map((d) => (days.has(d) ? days.get(d).cv : null)),
+        backgroundColor: PALETTE[5], borderWidth: 0 },
+    ] }, options: baseOptions({ plugins: { legend: { display: false } } }) });
+  }
+
   /** ARTICLE_INFO(게시글 번호 → 제목·주소·누적 수치). 응답에는 가장 최근 수집분이 들어 있다. */
   function postInfo(items) {
     const m = new Map();
@@ -1029,7 +1078,9 @@
     const meta = $('m-post-info');
     meta.replaceChildren();
     const i = info.get(selectedPost);
-    if (i) {
+    if (i && i.unavailable) {
+      meta.textContent = '이 글은 지금 조회할 수 없습니다(삭제되었거나 비공개로 바뀐 것으로 보입니다). 순위에 나온 기록만 있습니다.';
+    } else if (i) {
       const parts = ['누적 조회수 ' + nf.format(i.cvTotal || 0), '공감 ' + nf.format(i.likeTotal || 0),
         '댓글 ' + nf.format(i.commentTotal || 0)];
       if (i.createDate) parts.push('작성 ' + i.createDate);
@@ -1089,6 +1140,7 @@
     renderTimeCharts(view.items, dates);
     renderDistributions(view.items);
     renderRanks(view.items);
+    renderHourTrend(view);
     renderPostTrend(view);
     renderUpper(view);
     renderWeekly(view.items);
@@ -1137,6 +1189,7 @@
     document.querySelectorAll('#m-demo-seg button').forEach((x) => x.classList.toggle('active', x === b));
     if (lastView) renderDemo(lastView.items);
   }));
+  $('m-ht-select').addEventListener('change', (e) => { selectedHour = e.target.value; renderHourTrend(lastView); });
   // 게시글 추이: 선택한 글 바꾸기
   $('m-post-select').addEventListener('change', (e) => { selectedPost = e.target.value; renderPostTrend(lastView); });
 })();

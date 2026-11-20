@@ -97,11 +97,21 @@ public final class MetricSpecs {
     public static final MetricSpec ARTICLE_INFO = MetricSpec.value(
             "ARTICLE_INFO", "게시글 정보와 누적 수치", "/api/blog/article/cv", "DATE", "articleInfo,dashboard").forEachPost();
 
+    // ---- 시간대별: 0~23시마다 한 번씩(요청에 hour) ----
+
+    /**
+     * 한 시간대의 일별 조회수(한 번에 15일치). 행 구분은 두 자리 시간(00~23)이고, 컬럼은 cv(그 시간대 조회수),
+     * cv_daily(그 날 전체 조회수), cv_p(같은 15일 창 안에서 그 시간대 합계 중 비율)다. cv_p는 하루 중 비율이 아니다
+     * (2026-11-21 대조: 12시 15일합 173일 때 cv_p = cv/173, 15/15 일치). cv는 HOUR(user/hour/cv)의 날짜x시간 값과 720칸 모두 같다.
+     */
+    public static final MetricSpec HOUR_TREND = MetricSpec.series(
+            "HOUR_TREND", "시간대별 일별 조회수", "/api/blog/user/hour/hourCv", "DATE", "hour").forEachHour();
+
     /** 수집 순서. 요청이 적은 것부터, 게시글별은 순위가 먼저 있어야 해서 맨 끝에 둔다. */
     public static final List<MetricSpec> ALL = List.of(
             VIEWS, VISITORS, VISITS, DURATION, RELATION_VISIT, RELATION_DELTA, AVG_VISIT_WEEKLY, REVISIT_WEEKLY,
             DEMO, DEMO_FOLLOW, DEMO_FRIEND, DEMO_ETC, DEVICE, HOUR, COUNTRY, RANK_POST, RANK_SUBJECT, RANK_LIKE,
-            RANK_COMMENT, REL_DEMO_ADD, UPPER_GROUP, ARTICLE_CV, ARTICLE_INFO);
+            RANK_COMMENT, REL_DEMO_ADD, UPPER_GROUP, HOUR_TREND, ARTICLE_CV, ARTICLE_INFO);
 
     public static Optional<MetricSpec> find(String id) {
         return ALL.stream().filter(s -> s.id().equalsIgnoreCase(id)).findFirst();

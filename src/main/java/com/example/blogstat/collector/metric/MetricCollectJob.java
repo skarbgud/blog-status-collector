@@ -56,7 +56,7 @@ public class MetricCollectJob {
      *
      * @param startDate 요청의 startDate
      * @param requested 하루·월 단위 행에 붙일 날짜
-     * @param postId    게시글별 요청의 게시글 번호, 아니면 null
+     * @param postId    게시글별 요청은 게시글 번호, 시간대별 요청은 두 자리 시간, 아니면 null (행 구분으로도 쓴다)
      */
     private record Unit(LocalDate startDate, LocalDate requested, String postId, List<MetricSpec> specs) {
     }
@@ -85,7 +85,7 @@ public class MetricCollectJob {
      * 이번 계획이 보낼 요청 수 어림(재시도 제외). 게시글별 요청은 지금 저장된 순위에 나온 게시글 수 기준이다.
      */
     public int estimateRequests(Plan plan) {
-        return plainUnits(plan).size() + postUnits(plan).size();
+        return plainUnits(plan).size() + hourUnits(plan).size() + postUnits(plan).size();
     }
 
     public int maxRequests() {
@@ -118,6 +118,9 @@ public class MetricCollectJob {
             for (Unit unit : plainUnits(plan)) {
                 fetch(http, unit, today, saved, failures);
             }
+            for (Unit unit : hourUnits(plan)) {
+                fetch(http, unit, today, saved, failures);
+            }
             // 게시글 번호는 위에서 받은 순위에서 나오므로 그 뒤에 계획한다.
             for (Unit unit : postUnits(plan)) {
                 fetch(http, unit, today, saved, failures);
@@ -139,6 +142,10 @@ public class MetricCollectJob {
         } catch (IllegalStateException e) {
             if (Thread.currentThread().isInterrupted()) {
                 throw e;
+            }
+            if (first.perPost() && e.getMessage() != null && e.getMessage().contains("HTTP 400")) {
+                markUnavailable(unit, today);
+                return;
             }
             failures[0]++;
             System.out.println("[경고] " + label + " 수집 실패, 건너뜁니다: " + e.getMessage());
@@ -175,7 +182,7 @@ public class MetricCollectJob {
 
         Map<String, List<MetricSpec>> seriesGroups = new LinkedHashMap<>();
         for (MetricSpec spec : plan.specs()) {
-            if (spec.perPost()) {
+            if (spec.perPost() || spec.perHour()) {
                 continue;
             }
             if (spec.isSeries()) {
@@ -216,6 +223,38 @@ public class MetricCollectJob {
         return all;
     }
 
+    /** 시간대(0~23시)마다 시계열 창 수만큼. 이미 받은 시간대는 건너뛴다(force가 아니면). */
+    private List<Unit> hourUnits(Plan plan) {
+        List<MetricSpec> specs = plan.specs().stream().filter(MetricSpec::perHour).toList();
+        if (specs.isEmpty()) {
+            return List.of();
+        }
+        MetricSpec series = specs.get(0);
+        Set<String> have = plan.force() ? Set.of() : service.keysWith(series.id(), plan.to());
+        List<Unit> units = new ArrayList<>();
+        for (int h = 0; h < 24; h++) {
+            String hour = String.format("%02d", h);
+            if (have.contains(hour)) {
+                continue;
+            }
+            for (LocalDate start : seriesStarts(series, plan)) {
+                units.add(new Unit(start, plan.to(), hour, specs));
+            }
+        }
+        return units;
+    }
+
+    /**
+     * 게시글 요청이 HTTP 400이면 삭제되었거나 비공개가 된 글로 보고, 그 글을 실패로 세지 않고 "조회 불가" 표시를 남긴다.
+     * 표시는 수집한 날짜(to)로 저장되므로 그 날에는 다시 부르지 않고, 다음 날 한 번 다시 확인한다(일시적 오류면 되살아난다).
+     */
+    private void markUnavailable(Unit unit, LocalDate today) {
+        MetricSpec spec = unit.specs().stream().filter(MetricSpec::isValue).findFirst().orElse(unit.specs().get(0));
+        service.replace(spec.id(), List.of(new MetricRow(unit.requested(), spec.id(), unit.postId(),
+                "{\"unavailable\":true}", LocalDateTime.now(clock))), unit.postId());
+        System.out.println("[건너뜀] 글 " + unit.postId() + " 조회 불가(HTTP 400, 삭제·비공개로 추정). 내일 다시 확인합니다.");
+    }
+
     /** 순위에 나온 게시글마다 시계열 창 수만큼. 이미 받은 게시글은 건너뛴다(force가 아니면). */
     private List<Unit> postUnits(Plan plan) {
         List<MetricSpec> specs = plan.specs().stream().filter(MetricSpec::perPost).toList();
@@ -224,7 +263,11 @@ public class MetricCollectJob {
         }
         MetricSpec series = specs.stream().filter(MetricSpec::isSeries).findFirst().orElse(specs.get(0));
         // 게시글마다 요청 한 번에 시계열과 정보를 함께 읽으므로, 첫 창에만 정보 지표를 붙인다.
-        Set<String> have = plan.force() ? Set.of() : service.keysWith(specs.get(0).id(), plan.to());
+        // 시계열이든 정보든(조회 불가 표시 포함) 그 날짜에 하나라도 저장돼 있으면 이미 받은 게시글이다.
+        Set<String> have = new java.util.HashSet<>();
+        if (!plan.force()) {
+            specs.forEach(s -> have.addAll(service.keysWith(s.id(), plan.to())));
+        }
         List<Unit> units = new ArrayList<>();
         for (String post : service.postIds(plan.from(), plan.to())) {
             if (have.contains(post)) {
@@ -282,11 +325,12 @@ public class MetricCollectJob {
         return to.withDayOfMonth(1).minusMonths(1);
     }
 
+    /** 시간대 요청의 hour는 화면처럼 두 자리(05)로 보낸다. 앞자리 0을 자르면(hour=5) 0~9시가 모두 0으로 온다. */
     String url(MetricSpec spec, LocalDate startDate, String postId) {
         return settings.baseUrl() + spec.path()
                 + "?timeDimension=" + spec.timeDim()
                 + "&startDate=" + startDate
-                + (postId != null ? "&contentId=" + postId : "")
+                + (postId != null ? (spec.perHour() ? "&hour=" + postId : "&contentId=" + postId) : "")
                 + spec.extraQuery()
                 + "&exclude="
                 + "&_=" + System.currentTimeMillis() + "_" + ThreadLocalRandom.current().nextInt(10_000);
