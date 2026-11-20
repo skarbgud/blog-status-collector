@@ -1,5 +1,6 @@
 package com.example.blogstat.collector;
 
+import com.example.blogstat.collector.core.BudgetExceededException;
 import com.example.blogstat.domain.ReferrerDailyService;
 import com.example.blogstat.replica.SnapshotPublisher;
 import org.springframework.beans.factory.ObjectProvider;
@@ -36,11 +37,16 @@ public class CollectJob {
         this.publisher = publisher;
     }
 
-    /** 날짜를 받는 즉시 저장하므로, 중간에 예외가 나도 앞 날짜들은 DB에 남는다. */
+    /**
+     * 날짜를 받는 즉시 저장하므로, 중간에 예외가 나도 앞 날짜들은 DB에 남는다.
+     * 요청 예산을 다 쓰면 거기서 멈추고 지금까지의 결과를 돌려준다(남은 날짜는 다음 회차의 보충 수집이 가져간다).
+     */
     public List<DayResult> run(LocalDate from, LocalDate to) {
         List<DayResult> results = new ArrayList<>();
         try {
             collector.collect(from, to, day -> results.add(new DayResult(day, service.save(day))));
+        } catch (BudgetExceededException e) {
+            System.out.println("[예산] " + e.getMessage());
         } finally {
             publishSnapshot();
         }
@@ -60,6 +66,8 @@ public class CollectJob {
                 int searchDomains = (int) day.rows().stream().filter(RefererRow::searchEngine).count();
                 results.add(new QueryDayResult(day.date(), service.saveQueries(day), searchDomains));
             });
+        } catch (BudgetExceededException e) {
+            System.out.println("[예산] " + e.getMessage());
         } finally {
             publishSnapshot();
         }

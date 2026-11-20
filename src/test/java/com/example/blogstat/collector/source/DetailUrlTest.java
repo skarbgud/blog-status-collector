@@ -1,4 +1,4 @@
-package com.example.blogstat.collector;
+package com.example.blogstat.collector.source;
 
 import org.junit.jupiter.api.Test;
 
@@ -15,7 +15,7 @@ class DetailUrlTest {
 
     @Test
     void 화면이_쓰는_형태와_같은_파라미터를_만든다() {
-        String url = RefererCollector.detailUrl(BASE, DATE, "네이버 통합검색_모바일", 100, "123_45");
+        String url = RefererSource.detailUrl(BASE, DATE, "네이버 통합검색_모바일", 100, "123_45");
 
         assertEquals("https://blog.stat.naver.com/api/blog/daily/referer/total/detail"
                 + "?timeDimension=DATE&additionalTimeDimension=WEEK&startDate=2026-11-20&searchEngine=1"
@@ -25,7 +25,7 @@ class DetailUrlTest {
 
     @Test
     void 공백은_플러스가_아니라_퍼센트20으로_인코딩한다() {
-        String url = RefererCollector.detailUrl(BASE, DATE, "a b", 20, "n");
+        String url = RefererSource.detailUrl(BASE, DATE, "a b", 20, "n");
 
         assertTrue(url.contains("refererDomain=a%20b"));
         assertFalse(url.contains("a+b"));
@@ -33,7 +33,7 @@ class DetailUrlTest {
 
     @Test
     void 유입처_이름의_예약문자는_인코딩된다() {
-        String url = RefererCollector.detailUrl(BASE, DATE, "x&y=z", 20, "n");
+        String url = RefererSource.detailUrl(BASE, DATE, "x&y=z", 20, "n");
 
         assertTrue(url.contains("refererDomain=x%26y%3Dz"));
         // 이름 안의 &, =가 별도 파라미터로 새어 나가지 않아야 한다.

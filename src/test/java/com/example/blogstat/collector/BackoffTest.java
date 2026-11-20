@@ -27,8 +27,8 @@ class BackoffTest {
 
     @Test
     void RetryAfter_초_단위만_해석한다() {
-        assertEquals(7000, RefererCollector.parseRetryAfterMs("7"));
-        assertEquals(-1, RefererCollector.parseRetryAfterMs(null));
-        assertEquals(-1, RefererCollector.parseRetryAfterMs("Wed, 21 Oct 2026 07:28:00 GMT"));
+        assertEquals(7000, com.example.blogstat.collector.core.StatSession.parseRetryAfterMs("7"));
+        assertEquals(-1, com.example.blogstat.collector.core.StatSession.parseRetryAfterMs(null));
+        assertEquals(-1, com.example.blogstat.collector.core.StatSession.parseRetryAfterMs("Wed, 21 Oct 2026 07:28:00 GMT"));
     }
 }
