@@ -11,7 +11,7 @@
 - 매일 자동 수집(상주): `./gradlew bootRun --args="--app.mode=schedule"` — 매일 03:10(KST) + 시작 직후 1회, 마지막 저장일 다음 날부터 어제까지 보충(최대 7일). 세션이 만료되면 로그만 남기고 그 회차를 중단한다. cron은 `app.schedule.cron`(환경변수 `APP_SCHEDULE_CRON`)으로 바꾼다.
 - 대시보드(읽기 전용): `./gradlew bootRun --args="--spring.profiles.active=dashboard"` → http://127.0.0.1:8080 (로컬 바인딩). **`--app.mode=...`와 함께 켜지 않는다**(시작이 막힌다). 수집은 별도 프로세스로 띄우고, 둘은 동시에 켜도 된다.
 - 검색어만 길게 수집: `./gradlew bootRun --args="--app.mode=collect-queries --days=30"` (`--from/--to`, `--force` 가능). 이미 검색어가 있는 날짜는 건너뛴다. 유입경로 표는 건드리지 않는다.
-- 나머지 지표 전부 수집: `./gradlew bootRun --args="--app.mode=collect-metrics --days=30"` (`--from/--to`, `--only=VIEWS,HOUR`, `--force` 가능) — 조회수, 방문자, 시간대, 성별·연령, 기기, 국가, 게시글·주제 순위 등 16종(`MetricSpecs`). 30일이면 요청 260회 안팎(요청 사이 2~5초, 약 15~20분)이고 한 회차 상한은 `app.metrics.max-requests-per-run`(320). 쓰기 프로세스다. 상한에서 멈추면 같은 명령을 다시 실행하면 이어서 받는다. 스크립트: `scripts\collect-metrics.cmd [일수] [--force]`
+- 나머지 지표 전부 수집: `./gradlew bootRun --args="--app.mode=collect-metrics --days=30"` (`--from/--to`, `--only=VIEWS,HOUR`, `--force` 가능) — 조회수, 방문자, 시간대, 성별·연령(이웃 구분별 포함), 기기, 국가, 게시글·주제 순위, 월간 평균 비교, 게시글별 조회수와 누적 수치 등 23종(`MetricSpecs`). 처음 30일치는 요청 440회 안팎(요청 사이 2~5초, 약 25분), 이후 매일 수집은 100회 안팎이고 한 회차 상한은 `app.metrics.max-requests-per-run`(600). 쓰기 프로세스다. 상한에서 멈추면 같은 명령을 다시 실행하면 이어서 받는다. 스크립트: `scripts\collect-metrics.cmd [일수] [--force]`
 - 스냅샷만 다시 내보내기: `--app.mode=publish` (스냅샷 도입 전 데이터를 처음 내보낼 때, 내보내기 실패 시)
 - **직접 실행용 스크립트(Claude 없이)**: `scripts\collect-queries.cmd [일수] [--force]`, `scripts\dashboard.cmd`, `scripts\scheduler.cmd`, `scripts\login.cmd`
 - 탐색(XHR 로깅): `./gradlew bootRun --args="--app.mode=explore"`
@@ -27,9 +27,12 @@
 - 지표(유입경로·검색어 외): `GET /api/blog/<경로>?timeDimension=DATE&startDate=YYYY-MM-DD&exclude=` 형식이고 응답은 같은 컬럼별 배열이다. 목록과 응답 블록(`dataId`)은 `collector/metric/MetricSpecs`에 있다.
   - **시계열**(`visit/cv`, `visit/uv`, `visit/visit`, `visit/averageDuration`, `user/relationVisitCv`, `user/relationDelta`)은 한 번에 **15일치**가 `startDate`에서 거꾸로 온다. 주간(`visit/averageVisit`, `visit/revisit`)은 `timeDimension=WEEK`이고 `startDate`는 마지막으로 끝난 주의 월요일, 15주치가 온다.
   - **하루 단위**(`user/demoCv`, `user/device/mobile`, `user/hour/cv`, `user/country`, `rank/cvContentPc`, `rank/cvSubjectPc`, `rank/likePc`, `rank/commentPc`)는 날짜마다 한 번씩 부르고 과거 날짜도 조회된다.
+  - **이웃 구분별 성별·연령**(`demoFollow`, `demoFriend`, `demoEtc`)은 `user/demoCv`의 다른 블록이라 요청 하나로 `DEMO`와 함께 받는다(같은 API를 쓰는 지표는 `MetricSpec.requestKey()`로 묶어 한 번만 부른다). 세 구분의 합은 전체(`demo`)보다 1% 안팎 적다.
+  - **주 단위 하루 지표**(`user/relationDemoAdd`, `timeDimension=WEEK`)는 끝난 주의 월요일을 `startDate`로 주마다 한 번. **월간 비교**(`average/upperGroup`, `timeDimension=MONTH`)는 마지막으로 끝난 달 1일을 `startDate`로 한 번이고, 값이 `rows`가 아니라 `data.value` 객체(`MetricSpec.Kind.VALUE`)다. 서비스 평균·상위 그룹 평균은 월 단위 값이다.
+  - **게시글별**(`article/cv?contentId=`)은 조회·공감·댓글 순위에 나온 게시글마다 시계열 창(15일) 수만큼 부른다. 블록 `cv`는 일별 조회수(행 구분=게시글 번호), `articleInfo`+`dashboard`는 제목·주소·누적 조회수·공감·댓글이다. 이미 받은 게시글은 건너뛰고, 저장은 게시글 번호로 범위를 좁혀 다른 게시글 행을 지우지 않는다(`MetricService.replace(…, rowKey)`). **삭제되거나 비공개가 된 글은 HTTP 400**이라 매번 실패로 남는다(그 글만 건너뛰고 계속한다).
   - 국가(`country`)는 네이버가 국가를 분류하지 못한 방문을 빼고 계산해서, `cv` 합이 조회수보다 1~2 적은 날이 있다(`cv_p` 합은 100). 파싱 오류가 아니다.
   - 기기(`device`)는 구분 컬럼 없이 행 4개가 오는데, 2026-11-20 응답에서 행별 pc+mobile 합이 조회수의 total, etc, follow, friend와 일치해서 이 순서로 이름을 붙였다.
-  - **네이버가 어제분을 늦게 집계한다.** 2026-11-21 02:36에 받은 11/20은 순방문자(`visit/uv`)가 0, 시간대(`user/hour/cv`)의 `cv`가 24시간 모두 0이었다(조회수는 110). 시계열은 매번 다시 받아 덮어쓰므로 자동으로 채워진다. 하루 단위는 `MetricSpec.pendingWhenZero`로 "그 컬럼 합이 0이면 저장하지 않고, 앞서 저장된 값은 지우고, 다음 실행에서 다시 받는다".
+  - **네이버가 어제분을 늦게 집계한다.** 2026-11-21 02:36에 받은 11/20은 순방문자(`visit/uv`)가 0, 시간대(`user/hour/cv`)의 `cv`가 24시간 모두 0이었다(조회수는 110). 약 40분 뒤(03:20대) 다시 받았을 때는 확정돼 있었다(시간대 합 110, 순방문자 79). 시계열은 매번 다시 받아 덮어쓰므로 자동으로 채워진다. 하루 단위는 `MetricSpec.pendingWhenZero`로 "그 컬럼 합이 0이면 저장하지 않고, 앞서 저장된 값은 지우고, 다음 실행에서 다시 받는다".
 - 검색어: `GET /api/blog/daily/referer/total/detail?timeDimension=DATE&additionalTimeDimension=WEEK&startDate=YYYY-MM-DD&searchEngine=1&refererDomain=<유입처 이름, 공백은 %20>&size=100&exclude=`
   - 검색 유입처(`referrerSearchEngine=1`)마다 한 번씩 호출한다. 응답 `refererDetail`의 `searchQuery`, `cv`(그 유입처 안의 방문수), `cv_p`.
   - 과거 날짜도 조회된다. `size`는 화면이 20을 쓰고 우리는 100을 쓴다(100도 정상 응답). 검색어 합계가 유입처 방문수와 다르면 일부만 온 것이라 경고를 출력한다.
@@ -38,7 +41,7 @@
 ## 저장
 - 테이블 `referrer_daily`, 유니크 `(stat_date, referrer_name)`. H2 파일 DB(`./data/blogstat`).
 - 테이블 `search_query_daily`, 유니크 `(stat_date, referrer_name, search_query)`. 같은 (유입처, 검색어)가 한 날짜에 두 번 오면 합쳐서 저장한다.
-- 테이블 `metric_row`, 유니크 `(stat_date, metric, row_key)`. 나머지 지표 전부가 이 표 하나에 들어가고, 응답 컬럼은 `payload` JSON 한 덩어리다(지표마다 컬럼이 달라 표를 늘리지 않는다). 시계열은 `row_key=all`, 하루 단위는 연령 코드·시간·국가·순위 번호(`r001`…)·이웃 구분이다. 데이터가 없는 날은 `_empty` 행을 남겨 다시 요청하지 않는다. `MetricService.replace`는 그 지표의 해당 날짜만 지우고 다시 넣는다(멱등). 조회 API는 `GET /api/dashboard/metrics?from&to`.
+- 테이블 `metric_row`, 유니크 `(stat_date, metric, row_key)`. 나머지 지표 전부가 이 표 하나에 들어가고, 응답 컬럼은 `payload` JSON 한 덩어리다(지표마다 컬럼이 달라 표를 늘리지 않는다). 시계열은 `row_key=all`, 하루 단위는 연령 코드·시간·국가·순위 번호(`r001`…)·이웃 구분이다. 데이터가 없는 날은 `_empty` 행을 남겨 다시 요청하지 않는다. `MetricService.replace`는 그 지표의 해당 날짜만(게시글별은 그 게시글 행만) 지우고 다시 넣는다(멱등). 월간 비교·게시글 정보는 조회 기간 밖에 날짜가 있을 수 있어 `/api/dashboard/metrics`가 기간과 상관없이 최신값을 함께 보낸다(`MetricQueryService.LATEST_ONLY`). 조회 API는 `GET /api/dashboard/metrics?from&to`.
 - `ReferrerDailyService.save`는 날짜 단위 트랜잭션에서 그 날짜의 유입경로와 검색어를 지우고 다시 넣는다(멱등). 오늘 데이터는 저장하지 않는다.
 - **읽기/쓰기 분리**: H2 파일 DB는 한 프로세스만 열 수 있다. 그래서
   - 쓰기(`collect`, `collect-queries`, `schedule`, `login`)만 `./data/blogstat`를 연다. 쓰기가 끝날 때마다(`CollectJob`, 실패해도 그때까지 저장분) 일관된 스냅샷 `./data/replica/snapshot.sql`(H2 `SCRIPT`)을 내보낸다(`SnapshotPublisher`, 임시 파일에 쓰고 이름을 바꿔 원자적으로 교체).

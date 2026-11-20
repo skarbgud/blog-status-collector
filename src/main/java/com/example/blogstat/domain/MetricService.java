@@ -27,6 +27,15 @@ public class MetricService {
      */
     @Transactional
     public int replace(String metric, List<MetricRow> rows) {
+        return replace(metric, rows, null);
+    }
+
+    /**
+     * 게시글별 지표처럼 같은 날짜에 여러 행 구분(게시글)이 섞여 있으면 rowKey로 그 행 구분만 교체한다.
+     * rowKey가 null이면 그 지표의 해당 날짜 전체를 교체한다.
+     */
+    @Transactional
+    public int replace(String metric, List<MetricRow> rows, String rowKey) {
         if (rows.isEmpty()) {
             return 0;
         }
@@ -37,7 +46,11 @@ public class MetricService {
             }
             dates.add(row.getStatDate());
         }
-        repository.deleteByMetricAndStatDates(metric, dates);
+        if (rowKey == null) {
+            repository.deleteByMetricAndStatDates(metric, dates);
+        } else {
+            repository.deleteByMetricAndRowKeyAndStatDates(metric, rowKey, dates);
+        }
         repository.saveAll(rows);
         return (int) rows.stream().filter(r -> !MetricRow.EMPTY_KEY.equals(r.getRowKey())).count();
     }
@@ -56,6 +69,39 @@ public class MetricService {
     public Set<LocalDate> datesWith(String metric, LocalDate from, LocalDate to) {
         return new HashSet<>(repository.findDatesWithMetric(metric, from, to));
     }
+
+    /** 그 지표의 가장 최근 저장 날짜의 행들. 저장된 것이 없으면 빈 목록. */
+    @Transactional(readOnly = true)
+    public List<MetricRow> latestOf(String metric) {
+        return repository.findLatestStatDateOf(metric)
+                .map(d -> repository.findByMetricAndStatDateOrderByIdAsc(metric, d))
+                .orElse(List.of());
+    }
+
+    /** 그 지표·날짜에 저장된 행 구분값들(게시글별 지표면 게시글 번호). */
+    @Transactional(readOnly = true)
+    public Set<String> keysWith(String metric, LocalDate date) {
+        return new HashSet<>(repository.findRowKeys(metric, date));
+    }
+
+    /**
+     * 기간 안의 조회수·공감·댓글 순위에 한 번이라도 나온 게시글 번호(contentId)들.
+     * 순위의 uri(예: http://blog.naver.com/아이디/224476308011) 마지막 마디가 게시글 번호다.
+     */
+    @Transactional(readOnly = true)
+    public Set<String> postIds(LocalDate from, LocalDate to) {
+        Set<String> ids = new java.util.TreeSet<>();
+        for (String payload : repository.findPayloads(List.of("RANK_POST", "RANK_LIKE", "RANK_COMMENT"), from, to)) {
+            java.util.regex.Matcher m = POST_URI.matcher(payload);
+            if (m.find()) {
+                ids.add(m.group(1));
+            }
+        }
+        return ids;
+    }
+
+    private static final java.util.regex.Pattern POST_URI =
+            java.util.regex.Pattern.compile("\"uri\":\"https?://blog\\.naver\\.com/[^/\"]+/(\\d+)\"");
 
     @Transactional(readOnly = true)
     public List<MetricRow> find(LocalDate from, LocalDate to) {

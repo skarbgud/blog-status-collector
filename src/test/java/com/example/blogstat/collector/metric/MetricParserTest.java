@@ -112,6 +112,72 @@ class MetricParserTest {
     }
 
     @Test
+    void 한_응답에서_블록이_다른_지표를_각각_읽는다() {
+        String json = "{\"statusCode\":200,\"result\":{\"statDataList\":["
+                + "{\"dataId\":\"demo\",\"data\":{\"rows\":{\"age\":[\"total\"],\"m\":[1],\"f\":[2]}}},"
+                + "{\"dataId\":\"demoFriend\",\"data\":{\"rows\":{\"age\":[\"total\"],\"m\":[7],\"f\":[8]}}}]}}";
+
+        List<MetricRow> all = parser.parse(json, MetricSpecs.DEMO, DAY, TODAY, NOW);
+        List<MetricRow> friend = parser.parse(json, MetricSpecs.DEMO_FRIEND, DAY, TODAY, NOW);
+
+        assertEquals("{\"age\":\"total\",\"m\":1,\"f\":2}", all.get(0).getPayload());
+        assertEquals("DEMO_FRIEND", friend.get(0).getMetric());
+        assertEquals("{\"age\":\"total\",\"m\":7,\"f\":8}", friend.get(0).getPayload());
+    }
+
+    @Test
+    void 게시글별_시계열은_게시글_번호를_행_구분으로_쓴다() {
+        String json = body("cv", "{\"date\":[\"2026-11-20\",\"2026-11-19\"],\"cv\":[14,6],\"cv_p\":[2.2,0.9]}");
+
+        List<MetricRow> rows = parser.parse(json, MetricSpecs.ARTICLE_CV, DAY, TODAY, NOW, "224476308011");
+
+        assertEquals(2, rows.size());
+        assertEquals("224476308011", rows.get(0).getRowKey());
+        assertEquals("ARTICLE_CV", rows.get(0).getMetric());
+        assertEquals("{\"cv\":14,\"cv_p\":2.2}", rows.get(0).getPayload());
+    }
+
+    @Test
+    void 값_지표는_객체_항목을_행으로_나누고_나머지는_모아_한_행으로_만든다() {
+        String json = "{\"statusCode\":200,\"result\":{\"statDataList\":["
+                + "{\"dataId\":\"averageList\",\"data\":{\"value\":[\"2026-10-01\"]}},"
+                + "{\"dataId\":\"upperGroup\",\"data\":{\"value\":{\"cv\":{\"top_avg\":54707.6,\"service_avg\":444.0,\"max\":5217717},"
+                + "\"duration\":{\"top_avg\":155.7,\"service_avg\":154.2,\"max\":1799.8}}}},"
+                + "{\"dataId\":\"averageUserData\",\"data\":{\"value\":{\"duration\":153.8,\"uv\":9361}}}]}}";
+        LocalDate month = LocalDate.of(2026, 10, 1);
+
+        List<MetricRow> rows = parser.parse(json, MetricSpecs.UPPER_GROUP, month, TODAY, NOW);
+
+        assertEquals(List.of("cv", "duration", MetricSpec.VALUE_ROW), rows.stream().map(MetricRow::getRowKey).toList());
+        assertTrue(rows.stream().allMatch(r -> r.getStatDate().equals(month)));
+        assertEquals("{\"top_avg\":54707.6,\"service_avg\":444.0,\"max\":5217717}", rows.get(0).getPayload());
+        // averageUserData는 객체가 아닌 값(duration은 위 duration 행과 이름만 같다)이라 value 행으로 모인다.
+        assertEquals("{\"duration\":153.8,\"uv\":9361}", rows.get(2).getPayload());
+    }
+
+    @Test
+    void 게시글_정보는_제목과_누적_수치를_게시글_번호_한_행으로_모은다() {
+        String json = "{\"statusCode\":200,\"result\":{\"statDataList\":["
+                + "{\"dataId\":\"articleInfo\",\"data\":{\"value\":{\"title\":\"글\",\"url\":\"http://blog.naver.com/me/111\"}}},"
+                + "{\"dataId\":\"dashboard\",\"data\":{\"value\":{\"cvTotal\":614,\"commentTotal\":22,\"likeTotal\":89}}}]}}";
+
+        List<MetricRow> rows = parser.parse(json, MetricSpecs.ARTICLE_INFO, DAY, TODAY, NOW, "111");
+
+        assertEquals(1, rows.size());
+        assertEquals("111", rows.get(0).getRowKey());
+        assertTrue(rows.get(0).getPayload().contains("\"title\":\"글\""));
+        assertTrue(rows.get(0).getPayload().contains("\"cvTotal\":614"));
+    }
+
+    @Test
+    void 값_지표의_블록이_하나도_없으면_예외를_던진다() {
+        String json = "{\"statusCode\":200,\"result\":{\"statDataList\":[{\"dataId\":\"other\",\"data\":{\"value\":{\"a\":1}}}]}}";
+
+        assertThrows(MetricParseException.class,
+                () -> parser.parse(json, MetricSpecs.UPPER_GROUP, DAY, TODAY, NOW));
+    }
+
+    @Test
     void 시계열이_비어_있으면_빈_표시를_남기지_않는다() {
         String json = body("cv", "{\"date\":[],\"total\":[]}");
 

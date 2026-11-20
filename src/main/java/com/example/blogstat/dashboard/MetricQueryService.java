@@ -22,6 +22,8 @@ public class MetricQueryService {
     /** 한 번에 내보낼 수 있는 최대 기간. 하루 단위 지표가 날짜당 수십 행이라 응답이 너무 커지지 않게 막는다. */
     static final int MAX_DAYS = 366;
     static final int DEFAULT_DAYS = 30;
+    /** 기간과 상관없이 가장 최근에 저장된 값을 함께 내보내는 지표(월간 비교, 게시글 정보와 누적 수치). */
+    static final List<String> LATEST_ONLY = List.of("UPPER_GROUP", "ARTICLE_INFO");
 
     public record Item(String date, String metric, String key, Map<String, Object> values) {
     }
@@ -70,6 +72,15 @@ public class MetricQueryService {
                 continue;
             }
             items.add(new Item(row.getStatDate().toString(), row.getMetric(), row.getRowKey(), values(row)));
+        }
+        // 월·게시글 단위 값은 조회 기간 안에 날짜가 없을 수 있어서(예: 지난달 1일) 최신값을 항상 함께 보낸다.
+        for (String metric : LATEST_ONLY) {
+            for (MetricRow row : service.latestOf(metric)) {
+                boolean already = !row.getStatDate().isBefore(start) && !row.getStatDate().isAfter(end);
+                if (!already) {
+                    items.add(new Item(row.getStatDate().toString(), row.getMetric(), row.getRowKey(), values(row)));
+                }
+            }
         }
         List<Coverage> coverage = new ArrayList<>();
         for (MetricSummary s : service.summary()) {

@@ -143,6 +143,17 @@
   details.cov summary { cursor: pointer; color: var(--muted); font-size: 12px; }
   details.cov table { margin-top: 8px; font-size: 12px; }
   /* 반 폭 패널 안에서 두 칸으로 나누면 제목이 심하게 꺾여서 세로로 쌓는다 */
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+  .seg button { font: inherit; font-size: 12px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px;
+                background: var(--card); color: var(--text); cursor: pointer; }
+  .seg button.active { border-color: var(--c1); color: var(--c1); }
+  .post-pick { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .post-pick select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+                      background: var(--card); color: var(--text); min-width: 0; flex: 1 1 280px; max-width: 100%; }
+  .post-info { color: var(--muted); font-size: 12px; }
+  .post-info a { color: var(--c1); text-decoration: none; }
+  .ptable tr.pick { cursor: pointer; }
+  .ptable tr.pick:hover td { background: var(--bg); }
   .two-lists { display: grid; grid-template-columns: 1fr; gap: 14px; }
   .two-lists h3 { font-size: 13px; margin: 0 0 4px; }
 </style>
@@ -267,6 +278,13 @@
       </div>
       <div class="panel">
         <h2>성별·연령별 분포<span class="sub" id="m-demo-sub"></span></h2>
+        <div class="seg" id="m-demo-seg" role="group" aria-label="방문자 구분">
+          <button data-m="DEMO" class="active">전체</button>
+          <button data-m="DEMO_FRIEND">서로이웃</button>
+          <button data-m="DEMO_FOLLOW">피이웃</button>
+          <button data-m="DEMO_ETC">이웃 아님</button>
+          <button data-m="REL_DEMO_ADD" title="이웃으로 추가한 사람들의 성별·연령(주간)">이웃 추가(주간)</button>
+        </div>
         <div class="chart-box short"><canvas id="m-demo"></canvas></div>
         <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
         <p class="note">연령 구간 이름은 응답의 코드(01~11)를 네이버의 일반적인 11개 구간으로 풀어 쓴 것입니다.</p>
@@ -294,10 +312,33 @@
       <h2>인기 게시글<span class="sub">기간 합계 조회수 순</span></h2>
       <div class="tbl-scroll">
         <table class="ptable">
-          <thead><tr><th>게시글</th><th>조회수</th><th>순위권 일수</th><th>최고 순위</th></tr></thead>
+          <thead><tr><th>게시글</th><th>조회수</th><th>순위권 일수</th><th>최고 순위</th><th>누적 조회수</th></tr></thead>
           <tbody id="m-posts"></tbody>
         </table>
       </div>
+      <p class="note">행을 누르면 아래에서 그 글의 일별 조회수 추이를 볼 수 있습니다.</p>
+    </div>
+
+    <div class="panel" id="m-post-panel">
+      <h2>게시글별 조회수 추이<span class="sub" id="m-post-sub"></span></h2>
+      <div class="post-pick">
+        <select id="m-post-select" aria-label="게시글 선택"></select>
+        <span class="post-info" id="m-post-info"></span>
+      </div>
+      <div class="chart-box short"><canvas id="m-post"></canvas></div>
+      <div class="empty-note" hidden>이 기간에 수집된 게시글별 조회수가 없습니다.</div>
+    </div>
+
+    <div class="panel">
+      <h2>서비스 평균과 비교<span class="sub" id="m-up-sub"></span></h2>
+      <div class="tbl-scroll" style="max-height:none">
+        <table class="ptable">
+          <thead><tr><th>지표</th><th>내 블로그(조회 기간)</th><th>서비스 평균</th><th>상위 그룹 평균</th><th>최대</th><th>평균 사용자</th></tr></thead>
+          <tbody id="m-upper"></tbody>
+        </table>
+      </div>
+      <p class="note">서비스·상위 그룹 값은 네이버가 월 단위로 주는 값이고, 내 값은 위에서 고른 조회 기간의 합계(순방문자는 합칠 수 없어 제외, 사용시간은 평균)입니다.
+        '평균 사용자'는 응답의 averageUserData를 그대로 보여 주는 값입니다.</p>
     </div>
 
     <div class="grid2">
@@ -657,6 +698,10 @@
                 '45~49세', '50~54세', '55~59세', '60세 이상'];
   const charts = {};
   let seq = 0;
+  let demoMode = 'DEMO';   // 성별·연령 차트가 보여 주는 지표
+  let lastView = null;     // 구분 버튼·게시글 선택으로 다시 그릴 때 쓰는 마지막 응답
+  let selectedPost = null; // 게시글 추이에서 고른 게시글 번호
+  const postId = (uri) => ((uri || '').replace(/\/+$/, '').split('/').pop() || '');
 
   function isoDays(from, to) {
     const out = [];
@@ -666,7 +711,8 @@
     return out;
   }
   const sum = (a) => a.reduce((s, v) => s + (v || 0), 0);
-  const fmtDur = (sec) => Math.floor(sec / 60) + '분 ' + String(Math.round(sec % 60)).padStart(2, '0') + '초';
+  // 초를 먼저 반올림한 뒤 분·초로 나눈다(59.6초를 따로 반올림하면 "60초"가 된다).
+  const fmtDur = (sec) => { const s = Math.round(sec); return Math.floor(s / 60) + '분 ' + String(s % 60).padStart(2, '0') + '초'; };
   const pct = (v, t) => (t > 0 ? nf1.format(v * 100 / t) + '%' : '-');
 
   /** metric의 시계열 행을 날짜→값 Map으로. */
@@ -729,6 +775,11 @@
     }
     for (const cells of rows) {
       const tr = document.createElement('tr');
+      if (cells.pick) { // 행을 누르면 동작하게 하고 싶을 때 배열에 pick 함수를 달아 둔다
+        tr.className = 'pick';
+        tr.title = '누르면 아래에서 이 글의 일별 조회수 추이를 봅니다';
+        tr.addEventListener('click', cells.pick);
+      }
       for (const c of cells) tr.appendChild(c);
       body.appendChild(tr);
     }
@@ -855,6 +906,19 @@
       datasets: [{ data: relSum, backgroundColor: PALETTE.slice(0, 3), borderWidth: 0 }] }, options: pieOptions() });
   }
 
+  /** 성별·연령. demoMode가 정한 지표(전체, 이웃 구분별, 이웃 추가한 사람)의 기간 합계. */
+  function renderDemo(items) {
+    const men = sumByKey(items, demoMode, 'm');
+    const women = sumByKey(items, demoMode, 'f');
+    const codes = AGES.map((_, i) => String(i + 1).padStart(2, '0'));
+    const mTotal = sum([...men.values()]), fTotal = sum([...women.values()]);
+    $('m-demo-sub').textContent = mTotal + fTotal > 0 ? '남 ' + pct(mTotal, mTotal + fTotal) + ' · 여 ' + pct(fTotal, mTotal + fTotal) : '';
+    draw('m-demo', mTotal + fTotal > 0, { type: 'bar', data: { labels: AGES, datasets: [
+      { label: '남성', data: codes.map((c) => men.get(c) || 0), backgroundColor: PALETTE[0], borderWidth: 0 },
+      { label: '여성', data: codes.map((c) => women.get(c) || 0), backgroundColor: PALETTE[4], borderWidth: 0 },
+    ] }, options: baseOptions() });
+  }
+
   function renderDistributions(items) {
     // 시간대: 저장된 날짜들의 일평균
     const hourDays = new Set(items.filter((i) => i.metric === 'HOUR').map((i) => i.date));
@@ -866,16 +930,7 @@
         backgroundColor: PALETTE[0], borderWidth: 0 }] },
       options: baseOptions({ plugins: { legend: { display: false } } }) });
 
-    // 성별·연령
-    const men = sumByKey(items, 'DEMO', 'm');
-    const women = sumByKey(items, 'DEMO', 'f');
-    const codes = AGES.map((_, i) => String(i + 1).padStart(2, '0'));
-    const mTotal = sum([...men.values()]), fTotal = sum([...women.values()]);
-    $('m-demo-sub').textContent = mTotal + fTotal > 0 ? '남 ' + pct(mTotal, mTotal + fTotal) + ' · 여 ' + pct(fTotal, mTotal + fTotal) : '';
-    draw('m-demo', mTotal + fTotal > 0, { type: 'bar', data: { labels: AGES, datasets: [
-      { label: '남성', data: codes.map((c) => men.get(c) || 0), backgroundColor: PALETTE[0], borderWidth: 0 },
-      { label: '여성', data: codes.map((c) => women.get(c) || 0), backgroundColor: PALETTE[4], borderWidth: 0 },
-    ] }, options: baseOptions() });
+    renderDemo(items);
 
     // 기기: DEVICE 'total' 행이 전체 합계다
     let pc = 0, mobile = 0;
@@ -907,16 +962,109 @@
   function renderRanks(items) {
     const posts = aggregatePosts(items, 'RANK_POST', 'cv');
     const pTotal = sum(posts.map((p) => p.total));
-    fill('m-posts', posts.slice(0, 30).map((p, i) => [
-      titleCell(p.title, p.uri, i + 1), td(nf.format(p.total) + ' (' + pct(p.total, pTotal) + ')'),
-      td(p.days.size + '일'), td(p.best < 1e9 ? p.best + '위' : '-'),
-    ]), '이 기간에 수집된 게시글 순위가 없습니다.', 4);
+    const info = postInfo(items);
+    fill('m-posts', posts.slice(0, 30).map((p, i) => {
+      const id = postId(p.uri);
+      const total = info.get(id) && info.get(id).cvTotal;
+      const cells = [
+        titleCell(p.title, p.uri, i + 1), td(nf.format(p.total) + ' (' + pct(p.total, pTotal) + ')'),
+        td(p.days.size + '일'), td(p.best < 1e9 ? p.best + '위' : '-'), td(total != null ? nf.format(total) : '-'),
+      ];
+      cells.pick = () => { selectedPost = id; renderPostTrend(lastView); $('m-post-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); };
+      return cells;
+    }), '이 기간에 수집된 게시글 순위가 없습니다.', 5);
 
     for (const [id, metric] of [['m-like', 'RANK_LIKE'], ['m-comment', 'RANK_COMMENT']]) {
       const list = aggregatePosts(items, metric, 'event').slice(0, 5);
       fill(id, list.map((p, i) => [titleCell(p.title, p.uri, i + 1), td(nf.format(p.total))]),
         '이 기간에 없습니다.', 2);
     }
+  }
+
+  /** ARTICLE_INFO(게시글 번호 → 제목·주소·누적 수치). 응답에는 가장 최근 수집분이 들어 있다. */
+  function postInfo(items) {
+    const m = new Map();
+    for (const it of items) if (it.metric === 'ARTICLE_INFO') m.set(it.key, it.values);
+    return m;
+  }
+
+  function renderPostTrend(view) {
+    if (!view) return;
+    const items = view.items;
+    const dates = isoDays(view.from, view.to);
+    const inRange = new Set(dates);
+    const info = postInfo(items);
+    const rankTitle = new Map();
+    for (const it of items) if (it.metric === 'RANK_POST') rankTitle.set(postId(it.values.uri), it.values.title);
+
+    const byPost = new Map(); // 게시글 번호 → 날짜 → 조회수
+    for (const it of items) {
+      if (it.metric !== 'ARTICLE_CV' || !inRange.has(it.date)) continue;
+      if (!byPost.has(it.key)) byPost.set(it.key, new Map());
+      byPost.get(it.key).set(it.date, it.values.cv || 0);
+    }
+    const ranked = [...byPost.entries()].map(([id, m]) => ({ id, total: sum([...m.values()]), days: m }))
+      .sort((a, b) => b.total - a.total).slice(0, 60);
+
+    const select = $('m-post-select');
+    select.replaceChildren();
+    if (ranked.length === 0) {
+      $('m-post-sub').textContent = '';
+      $('m-post-info').textContent = '';
+      draw('m-post', false, null);
+      return;
+    }
+    if (!ranked.some((r) => r.id === selectedPost)) selectedPost = ranked[0].id;
+    for (const r of ranked) {
+      const o = document.createElement('option');
+      const title = (info.get(r.id) && info.get(r.id).title) || rankTitle.get(r.id) || r.id;
+      o.value = r.id;
+      o.textContent = title + ' (' + nf.format(r.total) + '회)';
+      if (r.id === selectedPost) o.selected = true;
+      select.appendChild(o);
+    }
+    const cur = ranked.find((r) => r.id === selectedPost);
+    $('m-post-sub').textContent = '게시글 ' + byPost.size + '개 · 이 글 기간 합계 ' + nf.format(cur.total) + '회';
+
+    const meta = $('m-post-info');
+    meta.replaceChildren();
+    const i = info.get(selectedPost);
+    if (i) {
+      const parts = ['누적 조회수 ' + nf.format(i.cvTotal || 0), '공감 ' + nf.format(i.likeTotal || 0),
+        '댓글 ' + nf.format(i.commentTotal || 0)];
+      if (i.createDate) parts.push('작성 ' + i.createDate);
+      meta.appendChild(document.createTextNode(parts.join(' · ') + ' '));
+      if (/^https?:\/\/blog\.naver\.com\//.test(i.url || '')) {
+        const a = document.createElement('a');
+        a.href = i.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+        a.textContent = '글 열기';
+        meta.appendChild(a);
+      }
+    }
+    draw('m-post', true, { type: 'bar', data: { labels: dates.map((d) => d.slice(5)), datasets: [
+      { label: '조회수', data: dates.map((d) => (cur.days.has(d) ? cur.days.get(d) : null)),
+        backgroundColor: PALETTE[0], borderWidth: 0 },
+    ] }, options: baseOptions({ plugins: { legend: { display: false } } }) });
+  }
+
+  /** 서비스 평균·상위 그룹 평균과의 월간 비교. 내 값은 조회 기간 기준이다. */
+  function renderUpper(view) {
+    const items = view.items.filter((i) => i.metric === 'UPPER_GROUP');
+    const rows = new Map(items.map((i) => [i.key, i.values]));
+    const month = items.length ? items[0].date : null;
+    $('m-up-sub').textContent = month ? month.slice(0, 7).replace('-', '년 ') + '월 기준' : '';
+    const views = sum([...series(view.items, 'VIEWS', 'total').values()]);
+    const visits = sum([...series(view.items, 'VISITS', 'visit').values()]);
+    const durArr = [...series(view.items, 'DURATION', 'total').values()].filter((v) => v > 0);
+    const mine = { cv: views, visit: visits, uv: null, duration: durArr.length ? sum(durArr) / durArr.length : null };
+    const avgUser = rows.get('value') || {};
+    const fmt = (key, v) => (v == null ? '-' : key === 'duration' ? fmtDur(v) : nf.format(Math.round(v * 10) / 10));
+    const labels = [['cv', '조회수'], ['uv', '순방문자'], ['visit', '방문횟수'], ['duration', '평균 사용시간']];
+    fill('m-upper', rows.size === 0 ? [] : labels.map(([k, name]) => {
+      const g = rows.get(k) || {};
+      return [td(name), td(fmt(k, mine[k])), td(fmt(k, g.service_avg)), td(fmt(k, g.top_avg)), td(fmt(k, g.max)),
+        td(fmt(k, avgUser[k]))];
+    }), '비교 지표가 아직 수집되지 않았습니다.', 6);
   }
 
   function renderWeekly(items) {
@@ -934,12 +1082,15 @@
   }
 
   function render(view) {
+    lastView = view;
     const dates = isoDays(view.from, view.to);
     $('m-range').textContent = view.from + ' ~ ' + view.to + ' · 지표 ' + view.coverage.length + '종 수집됨';
     renderCards(view.items, dates);
     renderTimeCharts(view.items, dates);
     renderDistributions(view.items);
     renderRanks(view.items);
+    renderPostTrend(view);
+    renderUpper(view);
     renderWeekly(view.items);
     renderCoverage(view);
     const latest = view.latest;
@@ -979,6 +1130,15 @@
   }
 
   window.addEventListener('blog:range', (e) => load(e.detail));
+
+  // 성별·연령: 방문자 구분 버튼
+  document.querySelectorAll('#m-demo-seg button').forEach((b) => b.addEventListener('click', () => {
+    demoMode = b.dataset.m;
+    document.querySelectorAll('#m-demo-seg button').forEach((x) => x.classList.toggle('active', x === b));
+    if (lastView) renderDemo(lastView.items);
+  }));
+  // 게시글 추이: 선택한 글 바꾸기
+  $('m-post-select').addEventListener('change', (e) => { selectedPost = e.target.value; renderPostTrend(lastView); });
 })();
 </script>
 </body>

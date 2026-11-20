@@ -40,7 +40,9 @@ class MetricCollectJobTest {
     void setUp() {
         service = mock(MetricService.class);
         when(service.datesWith(anyString(), any(), any())).thenReturn(Set.of());
-        when(service.replace(anyString(), any())).thenAnswer(inv -> ((List<?>) inv.getArgument(1)).size());
+        when(service.keysWith(anyString(), any())).thenReturn(Set.of());
+        when(service.postIds(any(), any())).thenReturn(Set.of());
+        when(service.replace(anyString(), any(), any())).thenAnswer(inv -> ((List<?>) inv.getArgument(1)).size());
         CollectSettings settings = mock(CollectSettings.class);
         when(settings.baseUrl()).thenReturn("https://stat.example");
         @SuppressWarnings("unchecked")
@@ -55,18 +57,37 @@ class MetricCollectJobTest {
                 + "\",\"data\":{\"rows\":" + rows + "}}]}}";
     }
 
-    /** 요청한 지표에 맞는 블록을 한 행씩 담아 돌려주는 가짜 HTTP. */
+    /**
+     * 어느 지표든 읽을 수 있는 블록을 모두 담아 돌려주는 가짜 HTTP. 알려진 경로가 아니면 실패한다.
+     * rows 블록은 한 행씩, value 블록은 작은 객체를 담는다.
+     */
     private StatHttp http() {
         return (url, label) -> {
             urls.add(url);
+            if (MetricSpecs.ALL.stream().noneMatch(s -> url.contains(s.path() + "?"))) {
+                throw new IllegalStateException("알 수 없는 URL: " + url);
+            }
+            String rows = "{\"date\":[\"2026-11-19\"],\"total\":[5],\"visit\":[5],\"age\":[\"total\"],"
+                    + "\"country\":[\"KR\"],\"cv\":[1],\"pc\":[1],\"mobile\":[2],\"dimension1\":[\"주제\"]}";
+            StringBuilder blocks = new StringBuilder();
             for (MetricSpec spec : MetricSpecs.ALL) {
-                if (url.contains(spec.path() + "?")) {
-                    return spec.isSeries()
-                            ? json(spec.blockId(), "{\"date\":[\"2026-11-19\"],\"total\":[5]}")
-                            : json(spec.blockId(), "{\"age\":[\"total\"],\"date\":[\"00\"],\"country\":[\"KR\"],\"cv\":[1]}");
+                for (String id : spec.blockIds()) {
+                    blocks.append(blocks.length() == 0 ? "" : ",");
+                    blocks.append(spec.isValue()
+                            ? "{\"dataId\":\"" + id + "\",\"data\":{\"value\":" + valueFor(id) + "}}"
+                            : "{\"dataId\":\"" + id + "\",\"data\":{\"rows\":" + rows + "}}");
                 }
             }
-            throw new IllegalStateException("알 수 없는 URL: " + url);
+            return "{\"statusCode\":200,\"result\":{\"statDataList\":[" + blocks + "]}}";
+        };
+    }
+
+    private static String valueFor(String blockId) {
+        return switch (blockId) {
+            case "upperGroup" -> "{\"cv\":{\"top_avg\":10.5,\"service_avg\":4.5,\"max\":99}}";
+            case "averageUserData" -> "{\"cv\":16492,\"uv\":9361}";
+            case "articleInfo" -> "{\"title\":\"글 제목\",\"url\":\"http://blog.naver.com/me/111\"}";
+            default -> "{\"cvTotal\":614,\"likeTotal\":89}";
         };
     }
 
@@ -174,7 +195,7 @@ class MetricCollectJobTest {
         assertEquals(0, result.failures());
         assertTrue(result.saved().isEmpty());
         verify(service).clear("HOUR", TO);
-        verify(service, never()).replace(anyString(), any());
+        verify(service, never()).replace(anyString(), any(), any());
     }
 
     @Test
@@ -201,6 +222,108 @@ class MetricCollectJobTest {
 
         assertTrue(result.budgetStopped());
         assertEquals(1, result.saved().get("COUNTRY"));
+    }
+
+    @Test
+    void 같은_API를_쓰는_지표들은_날짜마다_요청_한_번으로_함께_받는다() {
+        MetricCollectJob.Plan plan = new MetricCollectJob.Plan(
+                List.of(MetricSpecs.DEMO, MetricSpecs.DEMO_FOLLOW, MetricSpecs.DEMO_FRIEND, MetricSpecs.DEMO_ETC),
+                TO, TO, false);
+
+        MetricCollectJob.Result result = job.execute(http(), plan);
+
+        assertEquals(1, urls.size());
+        assertTrue(urls.get(0).contains("/api/blog/user/demoCv?"));
+        assertEquals(0, result.failures());
+        // 한 응답에서 네 지표가 모두 저장된다.
+        assertEquals(4, result.saved().size());
+        verify(service).replace(org.mockito.ArgumentMatchers.eq("DEMO_FRIEND"), any(), any());
+    }
+
+    @Test
+    void 일부_지표만_비어_있으면_그_지표만_다시_받는다() {
+        when(service.datesWith("DEMO", TO, TO)).thenReturn(Set.of(TO));
+        MetricCollectJob.Plan plan = new MetricCollectJob.Plan(List.of(MetricSpecs.DEMO, MetricSpecs.DEMO_ETC),
+                TO, TO, false);
+
+        MetricCollectJob.Result result = job.execute(http(), plan);
+
+        assertEquals(1, urls.size());
+        assertEquals(java.util.Set.of("DEMO_ETC"), result.saved().keySet());
+    }
+
+    @Test
+    void 월간_비교는_마지막으로_끝난_달의_1일로_한_번만_부른다() {
+        job.execute(http(), plan(MetricSpecs.UPPER_GROUP, LocalDate.of(2026, 10, 22), false));
+
+        assertEquals(1, urls.size());
+        assertTrue(urls.get(0).contains("timeDimension=MONTH"));
+        assertTrue(urls.get(0).contains("startDate=2026-10-01"));
+    }
+
+    @Test
+    void 값_지표는_객체_항목을_행으로_나누고_나머지는_한_행으로_모은다() {
+        org.mockito.ArgumentCaptor<List<com.example.blogstat.domain.MetricRow>> rows =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+
+        job.execute(http(), plan(MetricSpecs.UPPER_GROUP, LocalDate.of(2026, 10, 22), false));
+
+        verify(service).replace(org.mockito.ArgumentMatchers.eq("UPPER_GROUP"), rows.capture(), any());
+        assertEquals(List.of("cv", "value"), rows.getValue().stream()
+                .map(com.example.blogstat.domain.MetricRow::getRowKey).toList());
+        assertEquals(LocalDate.of(2026, 10, 1), rows.getValue().get(0).getStatDate());
+    }
+
+    @Test
+    void 주_단위_하루_지표는_기간과_겹치는_끝난_주마다_한_번씩_받는다() {
+        // 기간 11/06~11/20, 마지막으로 끝난 주는 11/09(월)~11/15. 그 전 주 11/02~11/08은 11/06과 겹친다.
+        job.execute(http(), plan(MetricSpecs.REL_DEMO_ADD, LocalDate.of(2026, 11, 6), false));
+
+        assertEquals(2, urls.size());
+        assertTrue(urls.get(0).contains("timeDimension=WEEK") && urls.get(0).contains("startDate=2026-11-09"));
+        assertTrue(urls.get(1).contains("startDate=2026-11-02"));
+    }
+
+    @Test
+    void 일요일이_끝_날짜면_그_주도_끝난_주로_본다() {
+        assertEquals(LocalDate.of(2026, 11, 16), MetricCollectJob.lastCompleteWeekStart(LocalDate.of(2026, 11, 22)));
+        assertEquals(LocalDate.of(2026, 11, 9), MetricCollectJob.lastCompleteWeekStart(LocalDate.of(2026, 11, 20)));
+    }
+
+    @Test
+    void 게시글별_지표는_순위에_나온_게시글마다_시계열_창_수만큼_부르고_첫_창에서_정보도_받는다() {
+        when(service.postIds(any(), any())).thenReturn(new java.util.TreeSet<>(Set.of("111", "222")));
+        MetricCollectJob.Plan plan = new MetricCollectJob.Plan(List.of(MetricSpecs.ARTICLE_CV, MetricSpecs.ARTICLE_INFO),
+                LocalDate.of(2026, 10, 22), TO, false);
+
+        MetricCollectJob.Result result = job.execute(http(), plan);
+
+        // 게시글 2개 x 창 2개
+        assertEquals(4, urls.size());
+        assertTrue(urls.get(0).contains("contentId=111") && urls.get(0).contains("startDate=2026-11-20"));
+        assertTrue(urls.get(1).contains("contentId=111") && urls.get(1).contains("startDate=2026-11-05"));
+        assertTrue(urls.get(2).contains("contentId=222"));
+        // 정보는 첫 창에서만 받는다(게시글마다 한 번)
+        assertEquals(2, result.saved().get("ARTICLE_INFO"));
+        // 같은 날짜의 다른 게시글 행을 지우지 않도록 게시글 번호로 범위를 좁혀 저장한다.
+        // 창이 2개라 게시글마다 두 번(창마다 한 번) 저장한다.
+        verify(service, org.mockito.Mockito.times(2)).replace(org.mockito.ArgumentMatchers.eq("ARTICLE_CV"), any(),
+                org.mockito.ArgumentMatchers.eq("111"));
+        verify(service, org.mockito.Mockito.times(2)).replace(org.mockito.ArgumentMatchers.eq("ARTICLE_CV"), any(),
+                org.mockito.ArgumentMatchers.eq("222"));
+    }
+
+    @Test
+    void 이미_받은_게시글은_건너뛴다() {
+        when(service.postIds(any(), any())).thenReturn(new java.util.TreeSet<>(Set.of("111", "222")));
+        when(service.keysWith("ARTICLE_CV", TO)).thenReturn(Set.of("111"));
+        MetricCollectJob.Plan plan = new MetricCollectJob.Plan(List.of(MetricSpecs.ARTICLE_CV, MetricSpecs.ARTICLE_INFO),
+                TO, TO, false);
+
+        job.execute(http(), plan);
+
+        assertEquals(1, urls.size());
+        assertTrue(urls.get(0).contains("contentId=222"));
     }
 
     @Test

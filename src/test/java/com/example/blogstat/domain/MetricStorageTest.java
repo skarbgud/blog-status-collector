@@ -84,6 +84,36 @@ class MetricStorageTest {
     }
 
     @Test
+    void 행_구분을_주면_같은_날짜의_다른_행_구분은_지우지_않는다() {
+        service.replace("ARTICLE_CV", List.of(row(D1, "ARTICLE_CV", "111", "{\"cv\":1}")), "111");
+        service.replace("ARTICLE_CV", List.of(row(D1, "ARTICLE_CV", "222", "{\"cv\":2}")), "222");
+
+        service.replace("ARTICLE_CV", List.of(row(D1, "ARTICLE_CV", "111", "{\"cv\":9}")), "111");
+
+        List<MetricRow> rows = repository.findByStatDateBetweenOrderByStatDateAscMetricAscIdAsc(D1, D1);
+        assertEquals(2, rows.size());
+        assertEquals(Set.of("111", "222"), service.keysWith("ARTICLE_CV", D1));
+        assertTrue(rows.stream().anyMatch(r -> r.getRowKey().equals("111") && r.getPayload().equals("{\"cv\":9}")));
+        assertTrue(rows.stream().anyMatch(r -> r.getRowKey().equals("222") && r.getPayload().equals("{\"cv\":2}")));
+    }
+
+    @Test
+    void 순위에_나온_게시글_번호를_모은다() {
+        service.replace("RANK_POST", List.of(
+                row(D1, "RANK_POST", "r001", "{\"title\":\"a\",\"uri\":\"http://blog.naver.com/me/224476308011\"}"),
+                row(D1, "RANK_POST", "r002", "{\"title\":\"b\",\"uri\":\"http://blog.naver.com/me/224440800651\"}")));
+        service.replace("RANK_LIKE", List.of(
+                row(D2, "RANK_LIKE", "r001", "{\"uri\":\"http://blog.naver.com/me/224476308011\"}"),
+                row(D2, "RANK_LIKE", "r002", "{\"uri\":\"http://example.com/x/999\"}")));
+        service.replace("HOUR", List.of(row(D2, "HOUR", "00", "{\"uri\":\"http://blog.naver.com/me/1\"}")));
+
+        // 다른 지표(HOUR)와 네이버 블로그가 아닌 주소는 넣지 않는다.
+        assertEquals(Set.of("224476308011", "224440800651"), service.postIds(D1, D2));
+        assertEquals(Set.of("224476308011", "224440800651"), service.postIds(D1, D1));
+        assertEquals(Set.of("224476308011"), service.postIds(D2, D2));
+    }
+
+    @Test
     void 다른_지표의_행이_섞이면_저장하지_않는다() {
         assertThrows(IllegalArgumentException.class,
                 () -> service.replace("HOUR", List.of(row(D1, "DEMO", "total", "{}"))));

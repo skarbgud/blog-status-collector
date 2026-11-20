@@ -31,6 +31,17 @@ public class MetricParser {
      */
     public List<MetricRow> parse(String json, MetricSpec spec, LocalDate requested, LocalDate today,
                                  LocalDateTime collectedAt) {
+        return parse(json, spec, requested, today, collectedAt, null);
+    }
+
+    /**
+     * @param key 게시글별 지표에서 행 구분으로 쓸 게시글 번호. 그 밖에는 null
+     */
+    public List<MetricRow> parse(String json, MetricSpec spec, LocalDate requested, LocalDate today,
+                                 LocalDateTime collectedAt, String key) {
+        if (spec.isValue()) {
+            return parseValue(json, spec, requested, collectedAt, key);
+        }
         JsonNode rows = rowsOf(json, spec);
         List<String> names = new ArrayList<>();
         for (Iterator<String> it = rows.fieldNames(); it.hasNext(); ) {
@@ -49,7 +60,7 @@ public class MetricParser {
                 if (!date.isBefore(today)) {
                     continue; // 오늘은 집계 중이라 확정값이 아니다.
                 }
-                result.add(new MetricRow(date, spec.id(), "all", write(values), collectedAt));
+                result.add(new MetricRow(date, spec.id(), key != null ? key : "all", write(values), collectedAt));
             } else {
                 result.add(new MetricRow(requested, spec.id(), dayKey(values, i, spec), write(values), collectedAt));
             }
@@ -59,6 +70,43 @@ public class MetricParser {
         }
         if (!spec.isSeries() && isPending(rows, spec)) {
             return List.of(); // 집계 전. 저장하지 않으면 빈 표시도 남지 않아 다음 실행에서 다시 받는다.
+        }
+        return result;
+    }
+
+    /**
+     * rows가 아니라 data.value 객체로 오는 지표. 지정한 블록들의 value를 훑어서
+     * 객체인 항목은 항목 이름을 행 구분으로 한 행으로, 객체가 아닌 값들은 모아서 한 행(value, 또는 게시글 번호)으로 만든다.
+     * 지정한 블록이 하나도 없으면 잘못된 응답으로 보고 예외를 던진다. 일부만 없는 것은 허용한다(선택 정보).
+     */
+    private List<MetricRow> parseValue(String json, MetricSpec spec, LocalDate requested, LocalDateTime collectedAt,
+                                       String key) {
+        JsonNode root = readRoot(json, spec);
+        Map<String, Object> scalars = new LinkedHashMap<>();
+        List<MetricRow> result = new ArrayList<>();
+        int found = 0;
+        for (String blockId : spec.blockIds()) {
+            JsonNode value = blockOf(root, blockId).path("data").path("value");
+            if (!value.isObject()) {
+                continue;
+            }
+            found++;
+            for (Map.Entry<String, JsonNode> field : value.properties()) {
+                if (field.getValue().isObject()) {
+                    Map<String, Object> nested = new LinkedHashMap<>();
+                    field.getValue().properties().forEach(f -> nested.put(f.getKey(), scalar(f.getValue())));
+                    result.add(new MetricRow(requested, spec.id(), field.getKey(), write(nested), collectedAt));
+                } else {
+                    scalars.put(field.getKey(), scalar(field.getValue()));
+                }
+            }
+        }
+        if (found == 0) {
+            throw new MetricParseException(spec.id() + " 응답에 " + spec.blockId() + " 블록의 value가 없음");
+        }
+        if (!scalars.isEmpty()) {
+            result.add(new MetricRow(requested, spec.id(), key != null ? key : MetricSpec.VALUE_ROW, write(scalars),
+                    collectedAt));
         }
         return result;
     }
@@ -80,7 +128,7 @@ public class MetricParser {
         return true;
     }
 
-    private JsonNode rowsOf(String json, MetricSpec spec) {
+    private JsonNode readRoot(String json, MetricSpec spec) {
         JsonNode root;
         try {
             root = mapper.readTree(json);
@@ -90,16 +138,29 @@ public class MetricParser {
         if (root.path("statusCode").asInt() != 200) {
             throw new MetricParseException(spec.id() + " API statusCode가 200이 아님: " + root.path("statusCode"));
         }
+        return root;
+    }
+
+    /** dataId가 blockId인 블록. 없으면 MissingNode. */
+    private static JsonNode blockOf(JsonNode root, String blockId) {
         for (JsonNode block : root.path("result").path("statDataList")) {
-            if (spec.blockId().equals(block.path("dataId").asText())) {
-                JsonNode rows = block.path("data").path("rows");
-                if (!rows.isObject()) {
-                    throw new MetricParseException(spec.id() + " 블록 " + spec.blockId() + "에 rows가 없음");
-                }
-                return rows;
+            if (blockId.equals(block.path("dataId").asText())) {
+                return block;
             }
         }
-        throw new MetricParseException(spec.id() + " 응답에 " + spec.blockId() + " 블록이 없음");
+        return com.fasterxml.jackson.databind.node.MissingNode.getInstance();
+    }
+
+    private JsonNode rowsOf(String json, MetricSpec spec) {
+        JsonNode block = blockOf(readRoot(json, spec), spec.blockId());
+        if (block.isMissingNode()) {
+            throw new MetricParseException(spec.id() + " 응답에 " + spec.blockId() + " 블록이 없음");
+        }
+        JsonNode rows = block.path("data").path("rows");
+        if (!rows.isObject()) {
+            throw new MetricParseException(spec.id() + " 블록 " + spec.blockId() + "에 rows가 없음");
+        }
+        return rows;
     }
 
     private static int rowCount(JsonNode rows, List<String> names, MetricSpec spec) {
