@@ -24,6 +24,7 @@ public class RefererCollector {
     private static final String API_PATH = "/api/blog/daily/referer/total";
 
     private final PlaywrightSessionFactory sessionFactory;
+    private final SessionStore sessionStore;
     private final RefererParser parser;
     private final String baseUrl;
     private final String refererPage;
@@ -33,8 +34,10 @@ public class RefererCollector {
     private final long baseBackoffMs;
     private final long capBackoffMs;
     private final long requestTimeoutMs;
+    private final boolean headless;
 
     public RefererCollector(PlaywrightSessionFactory sessionFactory,
+                            SessionStore sessionStore,
                             RefererParser parser,
                             @Value("${app.stat-url}") String statUrl,
                             @Value("${app.collect.base-url}") String baseUrl,
@@ -43,7 +46,10 @@ public class RefererCollector {
                             @Value("${app.collect.max-retries}") int maxRetries,
                             @Value("${app.collect.base-backoff-ms}") long baseBackoffMs,
                             @Value("${app.collect.cap-backoff-ms}") long capBackoffMs,
-                            @Value("${app.collect.request-timeout-ms}") long requestTimeoutMs) {
+                            @Value("${app.collect.request-timeout-ms}") long requestTimeoutMs,
+                            @Value("${app.collect.headless}") boolean headless) {
+        this.headless = headless;
+        this.sessionStore = sessionStore;
         this.sessionFactory = sessionFactory;
         this.parser = parser;
         this.refererPage = statUrl;
@@ -63,11 +69,12 @@ public class RefererCollector {
         }
 
         try (Playwright playwright = Playwright.create();
-             BrowserContext context = sessionFactory.open(playwright, true)) {
+             BrowserContext context = sessionFactory.open(playwright, headless)) {
 
-            if (!LoginSupport.hasSession(context)) {
+            // persistent profile만으로는 네이버 로그인이 유지되지 않아, 로그인 때 저장한 쿠키를 복원한다.
+            if (sessionStore.restore(context) == 0) {
                 throw new SessionExpiredException(
-                        "저장된 로그인 세션이 없습니다. `--app.mode=login`으로 먼저 로그인하세요.");
+                        "저장된 로그인 쿠키가 없습니다. `--app.mode=login`으로 먼저 로그인하세요.");
             }
 
             APIRequestContext api = context.request();
@@ -78,6 +85,8 @@ public class RefererCollector {
                 }
                 result.add(fetchDay(api, date));
             }
+            // 서버가 갱신해 준 쿠키가 있으면 다음 실행에서도 쓰도록 되저장한다.
+            sessionStore.save(context);
             return result;
         }
     }

@@ -25,6 +25,7 @@ app:
     base-backoff-ms: 1000
     cap-backoff-ms: 30000
     request-timeout-ms: 10000
+    headless: true
   explore:
     output-dir: explore-output
     # 로그인 완료까지 최대 대기(초)

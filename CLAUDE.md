@@ -6,8 +6,20 @@
 - Java 17, Spring Boot 3.5, Gradle, Spring Data JPA, H2(파일 모드), Playwright for Java
 
 ## 명령
-- 탐색(XHR 로깅): `gradle bootRun --args="--app.mode=explore"`
-- 테스트: `gradle test`
+- 로그인(1회, 수동): `./gradlew bootRun --args="--app.mode=login"` — 네이버 로그인 화면에서 "로그인 상태 유지" 체크
+- 수집: `./gradlew bootRun --args="--app.mode=collect --from=2026-11-18 --to=2026-11-19"` (기본: 어제 하루)
+- 탐색(XHR 로깅): `./gradlew bootRun --args="--app.mode=explore"`
+- 테스트: `./gradlew test`
+
+## 데이터 소스
+- `GET https://blog.stat.naver.com/api/blog/daily/referer/total?timeDimension=DATE&additionalTimeDimension=WEEK&startDate=YYYY-MM-DD&exclude=weekAndMonthAnalysis`
+- 응답 `rows`는 컬럼별 배열(행 배열 아님). `refererTotal` 블록의 `cv`합 == `refererTotalCount`로 검증한다.
+- 오늘 데이터는 집계 중(`dashboard.isToday`)이라 확정값이 아니다. 어제까지를 upsert로 저장한다.
+
+## 세션 (중요)
+- persistent profile 쿠키 DB만으로는 네이버 로그인이 다음 실행에 유지되지 않았다(원인 미확인, 브라우저 종료 후 쿠키 DB가 비어 있음).
+- 그래서 로그인 직후 쿠키를 `.playwright-profile/session-cookies.json`에 저장하고, 수집 때 복원한다. 이 파일은 로그인 권한 그 자체다.
+- 쿠키 만료(HTTP 401/403)는 재시도하지 않고 `SessionExpiredException`으로 중단한다. 로그인을 다시 하면 된다.
 
 ## 규칙
 - 로그인은 사람이 브라우저에서 수동으로만 한다. ID/PW 자동 입력, 캡차 우회 금지.
