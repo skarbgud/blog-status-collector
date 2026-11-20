@@ -118,6 +118,33 @@
   .banner { border: 1px solid; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
   .banner.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-text); }
   .banner.danger { background: var(--danger-bg); border-color: var(--danger-line); color: var(--danger-text); }
+
+  /* ---- 블로그 지표 섹션 ---- */
+  .sec-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin: 28px 0 12px; }
+  .sec-head h2 { font-size: 16px; margin: 0; }
+  .sec-head .sub { font-size: 12px; color: var(--muted); }
+  .cards.six { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .ptable td:not(:first-child), .ptable th:not(:first-child) { white-space: nowrap; }
+  .card .hint { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .chart-box.short { height: 230px; }
+  .chart-box.tall { height: 340px; }
+  .empty-note { color: var(--muted); font-size: 13px; padding: 28px 0; text-align: center; }
+  .note { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+  .tbl-scroll { max-height: 360px; overflow: auto; border-top: 1px solid var(--line); }
+  .tbl-scroll thead th { position: sticky; top: 0; background: var(--card); }
+  .ptable th:first-child, .ptable td:first-child { text-align: left; }
+  .ptable td:first-child { word-break: break-word; }
+  .ptable a { color: var(--text); text-decoration: none; }
+  .ptable a:hover { color: var(--c1); text-decoration: underline; }
+  .ptable .rk { color: var(--muted); font-size: 12px; margin-right: 6px; }
+  .pill { display: inline-block; padding: 0 7px; border-radius: 999px; font-size: 11px; line-height: 18px;
+          border: 1px solid var(--line); color: var(--muted); margin-left: 6px; }
+  details.cov { margin: 4px 0 20px; }
+  details.cov summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  details.cov table { margin-top: 8px; font-size: 12px; }
+  /* 반 폭 패널 안에서 두 칸으로 나누면 제목이 심하게 꺾여서 세로로 쌓는다 */
+  .two-lists { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  .two-lists h3 { font-size: 13px; margin: 0 0 4px; }
 </style>
 </head>
 <body>
@@ -127,6 +154,7 @@
 
   <nav class="nav" aria-label="페이지">
     <a href="#overview" class="active">개요</a>
+    <a href="#metrics-panel">블로그 지표</a>
     <a href="#trends-panel">검색어 변화</a>
     <a href="#queries-panel">검색어</a>
   </nav>
@@ -183,6 +211,126 @@
         <tbody id="rank"></tbody>
       </table>
     </div>
+  </div>
+
+  <div class="sec-head" id="metrics-panel">
+    <h2>블로그 지표</h2><span class="sub" id="m-range"></span>
+  </div>
+  <div id="m-empty" class="banner warn" hidden></div>
+  <div id="m-body">
+    <div class="cards six">
+      <div class="card"><div class="label">조회수</div><div class="value" id="m-c-views">-</div><div class="hint" id="m-h-views"></div></div>
+      <div class="card"><div class="label">방문횟수</div><div class="value" id="m-c-visits">-</div><div class="hint" id="m-h-visits"></div></div>
+      <div class="card"><div class="label">일평균 순방문자</div><div class="value" id="m-c-uv">-</div><div class="hint" id="m-h-uv"></div></div>
+      <div class="card"><div class="label">평균 사용시간</div><div class="value" id="m-c-dur">-</div><div class="hint" id="m-h-dur"></div></div>
+      <div class="card"><div class="label">이웃 순증감</div><div class="value" id="m-c-net">-</div><div class="hint" id="m-h-net"></div></div>
+      <div class="card"><div class="label">최근 주 재방문율</div><div class="value" id="m-c-rev">-</div><div class="hint" id="m-h-rev"></div></div>
+    </div>
+
+    <div class="panel">
+      <h2>조회수 추이<span class="sub">이웃 구분별</span></h2>
+      <div class="chart-box"><canvas id="m-views"></canvas></div>
+      <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>조회수·방문횟수·순방문자</h2>
+        <div class="chart-box short"><canvas id="m-visits"></canvas></div>
+        <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
+      </div>
+      <div class="panel">
+        <h2>평균 사용시간<span class="sub">분</span></h2>
+        <div class="chart-box short"><canvas id="m-dur"></canvas></div>
+        <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>이웃 증감</h2>
+        <div class="chart-box short"><canvas id="m-delta"></canvas></div>
+        <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
+      </div>
+      <div class="panel">
+        <h2>방문자 구분<span class="sub">조회수 기준</span></h2>
+        <div class="chart-box short"><canvas id="m-rel"></canvas></div>
+        <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>시간대별 조회수<span class="sub" id="m-hour-sub">일평균</span></h2>
+        <div class="chart-box short"><canvas id="m-hour"></canvas></div>
+        <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
+      </div>
+      <div class="panel">
+        <h2>성별·연령별 분포<span class="sub" id="m-demo-sub"></span></h2>
+        <div class="chart-box short"><canvas id="m-demo"></canvas></div>
+        <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
+        <p class="note">연령 구간 이름은 응답의 코드(01~11)를 네이버의 일반적인 11개 구간으로 풀어 쓴 것입니다.</p>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>기기별 분포</h2>
+        <div class="chart-box short"><canvas id="m-device"></canvas></div>
+        <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
+      </div>
+      <div class="panel">
+        <h2>국가별 분포</h2>
+        <div class="tbl-scroll" style="max-height:230px">
+          <table class="ptable">
+            <thead><tr><th>국가</th><th>조회수</th><th>비율</th></tr></thead>
+            <tbody id="m-country"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>인기 게시글<span class="sub">기간 합계 조회수 순</span></h2>
+      <div class="tbl-scroll">
+        <table class="ptable">
+          <thead><tr><th>게시글</th><th>조회수</th><th>순위권 일수</th><th>최고 순위</th></tr></thead>
+          <tbody id="m-posts"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>주제별 조회수</h2>
+        <div class="chart-box short"><canvas id="m-subject"></canvas></div>
+        <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
+      </div>
+      <div class="panel">
+        <h2>공감·댓글 많은 글</h2>
+        <div class="two-lists">
+          <div><h3>공감</h3><table class="ptable"><tbody id="m-like"></tbody></table></div>
+          <div><h3>댓글</h3><table class="ptable"><tbody id="m-comment"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>주간 지표<span class="sub">주 시작일(월요일) 기준</span></h2>
+      <table class="ptable">
+        <thead><tr><th>주</th><th>재방문율</th><th>평균 방문횟수</th></tr></thead>
+        <tbody id="m-weekly"></tbody>
+      </table>
+    </div>
+
+    <p class="note" id="m-note"></p>
+    <details class="cov">
+      <summary>지표 수집 현황</summary>
+      <table class="ptable">
+        <thead><tr><th>지표</th><th>저장 행</th><th>처음</th><th>마지막</th></tr></thead>
+        <tbody id="m-coverage"></tbody>
+      </table>
+    </details>
   </div>
 
   <div class="panel" id="trends-panel">
@@ -371,6 +519,8 @@
     try {
       const summary = await get('/api/dashboard/summary', params);
       const range = { from: summary.from, to: summary.to };
+      // 블로그 지표 섹션(아래 별도 스크립트)이 같은 기간으로 다시 그리도록 알린다.
+      window.dispatchEvent(new CustomEvent('blog:range', { detail: range }));
       const [daily, referrers, queries] = await Promise.all([
         get('/api/dashboard/daily', range),
         get('/api/dashboard/referrers', Object.assign({ limit: 10 }, range)),
@@ -382,6 +532,8 @@
       $('msg').textContent = summary.collectedDays === 0 ? '이 기간에 수집된 데이터가 없습니다.' : '';
     } catch (e) {
       $('msg').textContent = '조회 실패: ' + e.message;
+      // 유입경로 조회가 실패해도 지표 섹션은 자기 기간으로 따로 그린다.
+      window.dispatchEvent(new CustomEvent('blog:range', { detail: params }));
     }
   }
 
@@ -488,6 +640,345 @@
   }
 
   loadTrends();
+})();
+</script>
+<script>
+// 블로그 지표 섹션. /api/dashboard/metrics 한 번으로 받아 카드와 차트를 모두 그린다.
+// 게시글 제목·국가 등은 외부 값이므로 innerHTML을 쓰지 않고 textContent로만 넣는다.
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const nf = new Intl.NumberFormat('ko-KR');
+  const nf1 = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 1 });
+  const PALETTE = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2'];
+  // 응답 컬럼 이름 기준 해석: friend=서로이웃, follow=피이웃(나를 이웃 추가한 사람), etc=이웃이 아닌 방문
+  const REL = [['etc', '이웃 아님'], ['friend', '서로이웃'], ['follow', '피이웃']];
+  const AGES = ['0~12세', '13~18세', '19~24세', '25~29세', '30~34세', '35~39세', '40~44세',
+                '45~49세', '50~54세', '55~59세', '60세 이상'];
+  const charts = {};
+  let seq = 0;
+
+  function isoDays(from, to) {
+    const out = [];
+    const d = new Date(from + 'T00:00:00Z');
+    const end = new Date(to + 'T00:00:00Z');
+    while (d <= end) { out.push(d.toISOString().slice(0, 10)); d.setUTCDate(d.getUTCDate() + 1); }
+    return out;
+  }
+  const sum = (a) => a.reduce((s, v) => s + (v || 0), 0);
+  const fmtDur = (sec) => Math.floor(sec / 60) + '분 ' + String(Math.round(sec % 60)).padStart(2, '0') + '초';
+  const pct = (v, t) => (t > 0 ? nf1.format(v * 100 / t) + '%' : '-');
+
+  /** metric의 시계열 행을 날짜→값 Map으로. */
+  function series(items, metric, col) {
+    const m = new Map();
+    for (const it of items) if (it.metric === metric && it.values[col] != null) m.set(it.date, it.values[col]);
+    return m;
+  }
+  /** 하루 단위 지표 행들을 key 기준으로 col 합계. */
+  function sumByKey(items, metric, col) {
+    const m = new Map();
+    for (const it of items) if (it.metric === metric && it.key !== 'total') m.set(it.key, (m.get(it.key) || 0) + (it.values[col] || 0));
+    return m;
+  }
+
+  function setEmpty(canvasId, empty) {
+    const box = $(canvasId).parentElement;
+    box.hidden = empty;
+    box.nextElementSibling.hidden = !empty;
+  }
+  function draw(id, hasData, config) {
+    if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+    setEmpty(id, !hasData);
+    if (hasData) charts[id] = new Chart($(id), config);
+  }
+  function baseOptions(extra) {
+    const grid = css('--grid'), muted = css('--muted');
+    return Object.assign({
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { grid: { color: grid }, ticks: { color: muted, maxTicksLimit: 10 } },
+        y: { beginAtZero: true, grid: { color: grid }, ticks: { color: muted } },
+      },
+      plugins: { legend: { labels: { color: muted } } },
+    }, extra || {});
+  }
+  function pieOptions() {
+    return { maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: css('--muted') } } } };
+  }
+
+  function td(text, cls) {
+    const c = document.createElement('td');
+    c.textContent = text;
+    if (cls) c.className = cls;
+    return c;
+  }
+  function fill(tbodyId, rows, emptyText, cols) {
+    const body = $(tbodyId);
+    body.replaceChildren();
+    if (rows.length === 0) {
+      const tr = document.createElement('tr');
+      const c = td(emptyText);
+      c.colSpan = cols;
+      c.style.textAlign = 'left';
+      c.style.color = css('--muted');
+      tr.appendChild(c);
+      body.appendChild(tr);
+      return;
+    }
+    for (const cells of rows) {
+      const tr = document.createElement('tr');
+      for (const c of cells) tr.appendChild(c);
+      body.appendChild(tr);
+    }
+  }
+  function titleCell(title, uri, rank) {
+    const c = document.createElement('td');
+    if (rank != null) {
+      const r = document.createElement('span');
+      r.className = 'rk';
+      r.textContent = rank;
+      c.appendChild(r);
+    }
+    if (/^https?:\/\/blog\.naver\.com\//.test(uri || '')) {
+      const a = document.createElement('a');
+      a.href = uri; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.textContent = title;
+      c.appendChild(a);
+    } else {
+      c.appendChild(document.createTextNode(title));
+    }
+    return c;
+  }
+
+  /** 순위 지표를 글(uri) 기준으로 합친다. valueCol: cv 또는 event. */
+  function aggregatePosts(items, metric, valueCol) {
+    const m = new Map();
+    for (const it of items) {
+      if (it.metric !== metric) continue;
+      const k = it.values.uri || it.values.title;
+      const e = m.get(k) || { title: it.values.title, uri: it.values.uri, total: 0, days: new Set(), best: 1e9 };
+      e.total += it.values[valueCol] || 0;
+      e.days.add(it.date);
+      e.best = Math.min(e.best, it.values.rank || 1e9);
+      m.set(k, e);
+    }
+    return [...m.values()].sort((a, b) => b.total - a.total || a.best - b.best);
+  }
+
+  function renderCards(items, dates) {
+    const views = series(items, 'VIEWS', 'total');
+    const visits = series(items, 'VISITS', 'visit');
+    const dur = series(items, 'DURATION', 'total');
+    const vArr = [...views.values()];
+    $('m-c-views').textContent = vArr.length ? nf.format(sum(vArr)) : '-';
+    $('m-h-views').textContent = vArr.length ? '일평균 ' + nf1.format(sum(vArr) / vArr.length) : '';
+    const sArr = [...visits.values()];
+    $('m-c-visits').textContent = sArr.length ? nf.format(sum(sArr)) : '-';
+    $('m-h-visits').textContent = sArr.length ? '일평균 ' + nf1.format(sum(sArr) / sArr.length) : '';
+
+    // 순방문자는 네이버가 하루 늦게 확정해서 조회수가 있는데 0이면 집계 전으로 보고 뺀다.
+    const uv = uvSeries(items);
+    const uArr = dates.map((d) => uv.get(d)).filter((v) => v != null);
+    $('m-c-uv').textContent = uArr.length ? nf1.format(sum(uArr) / uArr.length) : '-';
+    $('m-h-uv').textContent = uArr.length ? uArr.length + '일 평균' : '';
+
+    const dArr = [...dur.values()].filter((v) => v > 0);
+    $('m-c-dur').textContent = dArr.length ? fmtDur(sum(dArr) / dArr.length) : '-';
+    $('m-h-dur').textContent = dArr.length ? '일 평균' : '';
+
+    const add = sum([...series(items, 'RELATION_DELTA', 'add').values()]);
+    const del = sum([...series(items, 'RELATION_DELTA', 'delete').values()]);
+    const hasDelta = series(items, 'RELATION_DELTA', 'add').size > 0;
+    $('m-c-net').textContent = hasDelta ? (add - del > 0 ? '+' : '') + nf.format(add - del) : '-';
+    $('m-h-net').textContent = hasDelta ? '추가 ' + nf.format(add) + ' · 삭제 ' + nf.format(del) : '';
+
+    const rev = [...series(items, 'REVISIT_WEEKLY', 'total_p').entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const last = rev[rev.length - 1];
+    $('m-c-rev').textContent = last ? nf1.format(last[1]) + '%' : '-';
+    $('m-h-rev').textContent = last ? last[0].slice(5).replace('-', '/') + ' 주' : '';
+  }
+
+  function uvSeries(items) {
+    const views = series(items, 'VIEWS', 'total');
+    const out = new Map();
+    for (const [d, v] of series(items, 'VISITORS', 'total')) {
+      if (v === 0 && (views.get(d) || 0) > 0) continue; // 집계 전
+      out.set(d, v);
+    }
+    return out;
+  }
+
+  function renderTimeCharts(items, dates) {
+    const labels = dates.map((d) => d.slice(5));
+    const at = (m) => dates.map((d) => (m.has(d) ? m.get(d) : null));
+
+    const relSets = REL.map(([col, name], i) => ({
+      label: name, data: at(series(items, 'VIEWS', col)), backgroundColor: PALETTE[i], borderWidth: 0,
+    }));
+    const hasViews = series(items, 'VIEWS', 'total').size > 0;
+    const stacked = baseOptions();
+    stacked.scales.x.stacked = true;
+    stacked.scales.y.stacked = true;
+    draw('m-views', hasViews, { type: 'bar', data: { labels, datasets: relSets }, options: stacked });
+
+    const line = (label, data, color) => ({ label, data, borderColor: color, backgroundColor: color,
+                                            tension: .25, spanGaps: false, pointRadius: 2 });
+    const vs = series(items, 'VISITS', 'visit');
+    const uv = uvSeries(items);
+    const vw = series(items, 'VIEWS', 'total');
+    draw('m-visits', hasViews || vs.size > 0, { type: 'line', data: { labels, datasets: [
+      line('조회수', at(vw), PALETTE[0]), line('방문횟수', at(vs), PALETTE[1]), line('순방문자', at(uv), PALETTE[2]),
+    ] }, options: baseOptions() });
+
+    const dur = series(items, 'DURATION', 'total');
+    const durOpts = baseOptions({ plugins: { legend: { display: false }, tooltip: { callbacks: {
+      label: (c) => '평균 사용시간: ' + fmtDur(c.parsed.y * 60) } } } });
+    draw('m-dur', dur.size > 0, { type: 'line', data: { labels, datasets: [
+      line('평균 사용시간(분)', dates.map((d) => (dur.has(d) ? dur.get(d) / 60 : null)), PALETTE[3]),
+    ] }, options: durOpts });
+
+    const add = series(items, 'RELATION_DELTA', 'add');
+    const del = series(items, 'RELATION_DELTA', 'delete');
+    const req = series(items, 'RELATION_DELTA', 'friend');
+    const deltaOpts = baseOptions();
+    deltaOpts.scales.y.beginAtZero = false;
+    draw('m-delta', add.size > 0, { type: 'bar', data: { labels, datasets: [
+      { label: '이웃 추가', data: at(add), backgroundColor: PALETTE[1], borderWidth: 0 },
+      { label: '이웃 삭제', data: dates.map((d) => (del.has(d) ? -del.get(d) : null)), backgroundColor: PALETTE[4], borderWidth: 0 },
+      Object.assign(line('서로이웃 신청', at(req), PALETTE[0]), { type: 'line' }),
+    ] }, options: deltaOpts });
+
+    const relSum = REL.map(([col]) => sum([...series(items, 'VIEWS', col).values()]));
+    draw('m-rel', sum(relSum) > 0, { type: 'doughnut', data: { labels: REL.map((r) => r[1]),
+      datasets: [{ data: relSum, backgroundColor: PALETTE.slice(0, 3), borderWidth: 0 }] }, options: pieOptions() });
+  }
+
+  function renderDistributions(items) {
+    // 시간대: 저장된 날짜들의 일평균
+    const hourDays = new Set(items.filter((i) => i.metric === 'HOUR').map((i) => i.date));
+    const hours = sumByKey(items, 'HOUR', 'cv');
+    const hourLabels = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
+    $('m-hour-sub').textContent = hourDays.size ? hourDays.size + '일 평균' : '';
+    draw('m-hour', hourDays.size > 0, { type: 'bar', data: { labels: hourLabels.map((h) => h + '시'),
+      datasets: [{ label: '일평균 조회수', data: hourLabels.map((h) => (hours.get(h) || 0) / Math.max(1, hourDays.size)),
+        backgroundColor: PALETTE[0], borderWidth: 0 }] },
+      options: baseOptions({ plugins: { legend: { display: false } } }) });
+
+    // 성별·연령
+    const men = sumByKey(items, 'DEMO', 'm');
+    const women = sumByKey(items, 'DEMO', 'f');
+    const codes = AGES.map((_, i) => String(i + 1).padStart(2, '0'));
+    const mTotal = sum([...men.values()]), fTotal = sum([...women.values()]);
+    $('m-demo-sub').textContent = mTotal + fTotal > 0 ? '남 ' + pct(mTotal, mTotal + fTotal) + ' · 여 ' + pct(fTotal, mTotal + fTotal) : '';
+    draw('m-demo', mTotal + fTotal > 0, { type: 'bar', data: { labels: AGES, datasets: [
+      { label: '남성', data: codes.map((c) => men.get(c) || 0), backgroundColor: PALETTE[0], borderWidth: 0 },
+      { label: '여성', data: codes.map((c) => women.get(c) || 0), backgroundColor: PALETTE[4], borderWidth: 0 },
+    ] }, options: baseOptions() });
+
+    // 기기: DEVICE 'total' 행이 전체 합계다
+    let pc = 0, mobile = 0;
+    for (const it of items) if (it.metric === 'DEVICE' && it.key === 'total') { pc += it.values.pc || 0; mobile += it.values.mobile || 0; }
+    draw('m-device', pc + mobile > 0, { type: 'doughnut', data: { labels: ['모바일', 'PC'],
+      datasets: [{ data: [mobile, pc], backgroundColor: [PALETTE[0], PALETTE[2]], borderWidth: 0 }] }, options: pieOptions() });
+
+    // 국가
+    const countries = [...sumByKey(items, 'COUNTRY', 'cv').entries()].sort((a, b) => b[1] - a[1]);
+    const cTotal = sum(countries.map((c) => c[1]));
+    let names = null;
+    try { names = new Intl.DisplayNames(['ko'], { type: 'region' }); } catch (e) { /* 지원 안 하면 코드로 표시 */ }
+    fill('m-country', countries.map(([code, v]) => {
+      let label = code;
+      try { if (names) label = (names.of(code) || code) + ' (' + code + ')'; } catch (e) { /* 코드 그대로 */ }
+      return [td(label), td(nf.format(v)), td(pct(v, cTotal))];
+    }), '이 기간에 수집된 데이터가 없습니다.', 3);
+
+    // 주제
+    const subjects = new Map();
+    for (const it of items) if (it.metric === 'RANK_SUBJECT')
+      subjects.set(it.values.dimension1, (subjects.get(it.values.dimension1) || 0) + (it.values.cv || 0));
+    const sub = [...subjects.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+    draw('m-subject', sub.length > 0, { type: 'bar', data: { labels: sub.map((s) => s[0]),
+      datasets: [{ label: '조회수', data: sub.map((s) => s[1]), backgroundColor: PALETTE[1], borderWidth: 0 }] },
+      options: baseOptions({ indexAxis: 'y', plugins: { legend: { display: false } } }) });
+  }
+
+  function renderRanks(items) {
+    const posts = aggregatePosts(items, 'RANK_POST', 'cv');
+    const pTotal = sum(posts.map((p) => p.total));
+    fill('m-posts', posts.slice(0, 30).map((p, i) => [
+      titleCell(p.title, p.uri, i + 1), td(nf.format(p.total) + ' (' + pct(p.total, pTotal) + ')'),
+      td(p.days.size + '일'), td(p.best < 1e9 ? p.best + '위' : '-'),
+    ]), '이 기간에 수집된 게시글 순위가 없습니다.', 4);
+
+    for (const [id, metric] of [['m-like', 'RANK_LIKE'], ['m-comment', 'RANK_COMMENT']]) {
+      const list = aggregatePosts(items, metric, 'event').slice(0, 5);
+      fill(id, list.map((p, i) => [titleCell(p.title, p.uri, i + 1), td(nf.format(p.total))]),
+        '이 기간에 없습니다.', 2);
+    }
+  }
+
+  function renderWeekly(items) {
+    const rev = series(items, 'REVISIT_WEEKLY', 'total_p');
+    const avg = series(items, 'AVG_VISIT_WEEKLY', 'total');
+    const weeks = [...new Set([...rev.keys(), ...avg.keys()])].sort().reverse();
+    fill('m-weekly', weeks.map((w) => [td(w.slice(5).replace('-', '/') + ' 주'),
+      td(rev.has(w) ? nf1.format(rev.get(w)) + '%' : '-'), td(avg.has(w) ? nf.format(avg.get(w)) : '-')]),
+      '이 기간에 수집된 주간 지표가 없습니다.', 3);
+  }
+
+  function renderCoverage(view) {
+    fill('m-coverage', view.coverage.map((c) => [td(c.metric), td(nf.format(c.rows)), td(c.firstDate), td(c.lastDate)]),
+      '수집된 지표가 없습니다.', 4);
+  }
+
+  function render(view) {
+    const dates = isoDays(view.from, view.to);
+    $('m-range').textContent = view.from + ' ~ ' + view.to + ' · 지표 ' + view.coverage.length + '종 수집됨';
+    renderCards(view.items, dates);
+    renderTimeCharts(view.items, dates);
+    renderDistributions(view.items);
+    renderRanks(view.items);
+    renderWeekly(view.items);
+    renderCoverage(view);
+    const latest = view.latest;
+    const hours = view.items.some((i) => i.metric === 'HOUR' && i.date === latest);
+    $('m-note').textContent = '순방문자와 시간대별 조회수는 네이버가 어제분을 늦게 집계해서, 확정 전에는 비어 있거나 빠집니다. '
+      + '다음 수집 때 채워집니다.' + (hours ? '' : ' (최근 ' + latest + ' 시간대 값은 아직 없음)');
+  }
+
+  async function load(range) {
+    const my = ++seq;
+    const empty = $('m-empty'), body = $('m-body');
+    try {
+      const res = await fetch('/api/dashboard/metrics?' + new URLSearchParams(range || {}).toString());
+      if (!res.ok) {
+        let detail = '';
+        try { detail = (await res.json()).message || ''; } catch (e) { /* 본문 없음 */ }
+        throw new Error(detail || ('HTTP ' + res.status));
+      }
+      const view = await res.json();
+      if (my !== seq) return; // 더 최근 요청이 있으면 이 응답은 버린다.
+      if (!view.ready) {
+        body.hidden = true;
+        empty.textContent = '블로그 지표가 아직 수집되지 않았습니다. scripts\\collect-metrics.cmd 로 수집하면 이 섹션이 채워집니다.';
+        empty.hidden = false;
+        $('m-range').textContent = '';
+        return;
+      }
+      empty.hidden = true;
+      body.hidden = false;
+      render(view);
+    } catch (e) {
+      if (my !== seq) return;
+      body.hidden = true;
+      empty.textContent = '지표를 불러오지 못했습니다: ' + e.message;
+      empty.hidden = false;
+    }
+  }
+
+  window.addEventListener('blog:range', (e) => load(e.detail));
 })();
 </script>
 </body>

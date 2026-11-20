@@ -38,6 +38,13 @@ public class NaverStatClient {
      * @throws SessionExpiredException 저장된 쿠키가 없거나 API가 401/403을 줄 때
      */
     public void run(Consumer<StatSession> work) {
+        run(settings.maxRequestsPerRun(), work);
+    }
+
+    /**
+     * 회차의 요청 예산을 따로 정해 실행한다. 지표를 30일치 한꺼번에 받는 수집처럼 기본 예산보다 요청이 많은 작업용이다.
+     */
+    public void run(int maxRequests, Consumer<StatSession> work) {
         try (Playwright playwright = Playwright.create();
              BrowserContext context = sessionFactory.open(playwright, settings.headless())) {
 
@@ -48,7 +55,7 @@ public class NaverStatClient {
             }
 
             StatSession session = new StatSession(playwrightHttp(context.request()), settings,
-                    new RequestBudget(settings.maxRequestsPerRun()),
+                    new RequestBudget(maxRequests),
                     StatSession::sleep, () -> ThreadLocalRandom.current().nextDouble());
             work.accept(session);
             System.out.println("[요청] 이번 회차 " + session.budget().used() + "/" + session.budget().limit() + "회");

@@ -31,6 +31,11 @@ app:
   queries:
     # 검색어만 따로 수집(--app.mode=collect-queries)할 때 기본으로 거슬러 올라갈 일수
     default-days: 30
+  metrics:
+    # 지표 수집(--app.mode=collect-metrics)에서 기본으로 거슬러 올라갈 일수
+    default-days: 30
+    # 지표 수집 한 회차의 최대 요청 수(재시도 포함). 30일치는 시계열 약 20회 + 하루 단위 8종 x 30일 = 260회 안팎이라 기본 예산(200)보다 크다.
+    max-requests-per-run: 320
   session:
     # 로그인 쿠키 만료까지 이 일수 이하로 남으면 경고(로그, 대시보드 배너)
     warn-days: 7
