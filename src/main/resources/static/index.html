@@ -287,6 +287,7 @@
         </div>
         <div class="chart-box short"><canvas id="m-demo"></canvas></div>
         <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
+        <p class="note" id="m-demo-gap" hidden></p>
         <p class="note">연령 구간 이름은 응답의 코드(01~11)를 네이버의 일반적인 11개 구간으로 풀어 쓴 것입니다.</p>
       </div>
     </div>
@@ -940,6 +941,17 @@
     const women = sumByKey(items, demoMode, 'f');
     const codes = AGES.map((_, i) => String(i + 1).padStart(2, '0'));
     const mTotal = sum([...men.values()]), fTotal = sum([...women.values()]);
+    // 이웃 구분별 합은 전체보다 조금 적다(네이버 집계 차이). 구분별 차트를 볼 때 그 차이를 숨기지 않는다.
+    const gapNote = $('m-demo-gap');
+    if (['DEMO_FRIEND', 'DEMO_FOLLOW', 'DEMO_ETC'].includes(demoMode)) {
+      const all = (metric) => [...sumByKey(items, metric, 'm').values(), ...sumByKey(items, metric, 'f').values()];
+      const full = sum(all('DEMO'));
+      const parts = sum(all('DEMO_FRIEND')) + sum(all('DEMO_FOLLOW')) + sum(all('DEMO_ETC'));
+      gapNote.textContent = full > 0 ? '세 구분(서로이웃·피이웃·이웃 아님)의 합은 전체보다 ' + nf.format(full - parts) + '명(' + pct(full - parts, full) + ') 적습니다. 네이버가 구분에 넣지 않은 방문자가 있어서이고, 차이는 대부분 이웃 아님 쪽에서 납니다.' : '';
+      gapNote.hidden = full === 0;
+    } else {
+      gapNote.hidden = true;
+    }
     $('m-demo-sub').textContent = mTotal + fTotal > 0 ? '남 ' + pct(mTotal, mTotal + fTotal) + ' · 여 ' + pct(fTotal, mTotal + fTotal) : '';
     draw('m-demo', mTotal + fTotal > 0, { type: 'bar', data: { labels: AGES, datasets: [
       { label: '남성', data: codes.map((c) => men.get(c) || 0), backgroundColor: PALETTE[0], borderWidth: 0 },
