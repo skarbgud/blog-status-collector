@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>블로그 유입 대시보드</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1d2430; --muted: #6b7686; --line: #e3e7ee;
+    --c1: #2563eb; --c2: #16a34a; --grid: rgba(0,0,0,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11151c; --card: #1a2029; --text: #e6e9ef; --muted: #9aa5b5; --line: #2a3340;
+            --c1: #60a5fa; --c2: #4ade80; --grid: rgba(255,255,255,.1); }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+  .controls input, .controls button { font: inherit; padding: 6px 10px; border: 1px solid var(--line);
+         border-radius: 6px; background: var(--card); color: var(--text); }
+  .controls button { cursor: pointer; }
+  .controls button.active { border-color: var(--c1); color: var(--c1); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .card .label { color: var(--muted); font-size: 12px; }
+  .card .value { font-size: 24px; font-weight: 600; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .panel h2 { font-size: 15px; margin: 0 0 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+  .chart-box { position: relative; height: 280px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  th:not(:first-child), td:not(:first-child) { text-align: right; }
+  .tag { font-size: 11px; color: var(--c2); margin-left: 6px; }
+  #msg { color: var(--muted); margin: 8px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>블로그 유입 대시보드</h1>
+
+  <div class="controls">
+    <button data-days="7">7일</button>
+    <button data-days="30" class="active">30일</button>
+    <button data-days="90">90일</button>
+    <span style="color:var(--muted)">직접 선택</span>
+    <input type="date" id="from"> ~ <input type="date" id="to">
+    <button id="apply">조회</button>
+  </div>
+  <div id="msg"></div>
+
+  <div class="cards">
+    <div class="card"><div class="label">총 방문</div><div class="value" id="c-total">-</div></div>
+    <div class="card"><div class="label">검색 유입</div><div class="value" id="c-search">-</div></div>
+    <div class="card"><div class="label">검색 비율</div><div class="value" id="c-ratio">-</div></div>
+    <div class="card"><div class="label">수집된 날짜</div><div class="value" id="c-days">-</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>일별 방문 추이</h2>
+    <div class="chart-box"><canvas id="daily"></canvas></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h2>유입처 비율 (상위 10)</h2>
+      <div class="chart-box"><canvas id="share"></canvas></div>
+    </div>
+    <div class="panel">
+      <h2>유입처 순위</h2>
+      <table>
+        <thead><tr><th>유입처</th><th>방문</th><th>비율</th></tr></thead>
+        <tbody id="rank"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const nf = new Intl.NumberFormat('ko-KR');
+  let dailyChart = null, shareChart = null;
+
+  function iso(d) {
+    const p = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+
+  async function get(path, params) {
+    const qs = new URLSearchParams(params).toString();
+    const res = await fetch(path + '?' + qs);
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.json()).message || ''; } catch (e) { /* 본문 없음 */ }
+      throw new Error(detail || ('HTTP ' + res.status));
+    }
+    return res.json();
+  }
+
+  function render(summary, daily, referrers) {
+    $('from').value = summary.from;
+    $('to').value = summary.to;
+    $('c-total').textContent = nf.format(summary.totalVisits);
+    $('c-search').textContent = nf.format(summary.searchVisits);
+    $('c-ratio').textContent = summary.searchRatio.toFixed(1) + '%';
+    $('c-days').textContent = summary.collectedDays + ' / ' + summary.totalDays + '일';
+
+    const c1 = css('--c1'), c2 = css('--c2'), grid = css('--grid'), muted = css('--muted');
+    if (dailyChart) dailyChart.destroy();
+    dailyChart = new Chart($('daily'), {
+      type: 'line',
+      data: {
+        labels: daily.map((d) => d.date.slice(5)),
+        datasets: [
+          { label: '전체', data: daily.map((d) => d.visits), borderColor: c1, backgroundColor: c1,
+            tension: .25, spanGaps: false, pointRadius: 2 },
+          { label: '검색', data: daily.map((d) => d.searchVisits), borderColor: c2, backgroundColor: c2,
+            tension: .25, spanGaps: false, pointRadius: 2 },
+        ],
+      },
+      options: {
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          x: { grid: { color: grid }, ticks: { color: muted, maxTicksLimit: 10 } },
+          y: { beginAtZero: true, grid: { color: grid }, ticks: { color: muted } },
+        },
+        plugins: { legend: { labels: { color: muted } } },
+      },
+    });
+
+    const palette = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626',
+                     '#0891b2', '#65a30d', '#db2777', '#4b5563', '#ca8a04'];
+    if (shareChart) shareChart.destroy();
+    shareChart = new Chart($('share'), {
+      type: 'doughnut',
+      data: {
+        labels: referrers.map((r) => r.name),
+        datasets: [{ data: referrers.map((r) => r.visits), backgroundColor: palette, borderWidth: 0 }],
+      },
+      options: { maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: muted } } } },
+    });
+
+    // 유입처 이름은 외부 값이므로 innerHTML을 쓰지 않고 textContent로만 넣는다.
+    const body = $('rank');
+    body.replaceChildren();
+    for (const r of referrers) {
+      const tr = document.createElement('tr');
+      const name = document.createElement('td');
+      name.textContent = r.name;
+      if (r.searchEngine) {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = '검색';
+        name.appendChild(tag);
+      }
+      const v = document.createElement('td');
+      v.textContent = nf.format(r.visits);
+      const p = document.createElement('td');
+      p.textContent = r.ratio.toFixed(1) + '%';
+      tr.append(name, v, p);
+      body.appendChild(tr);
+    }
+  }
+
+  async function load(params) {
+    $('msg').textContent = '불러오는 중…';
+    try {
+      const summary = await get('/api/dashboard/summary', params);
+      const range = { from: summary.from, to: summary.to };
+      const [daily, referrers] = await Promise.all([
+        get('/api/dashboard/daily', range),
+        get('/api/dashboard/referrers', Object.assign({ limit: 10 }, range)),
+      ]);
+      render(summary, daily, referrers);
+      $('msg').textContent = summary.collectedDays === 0
+        ? '이 기간에 수집된 데이터가 없습니다.'
+        : (summary.latestDate ? '최근 수집일: ' + summary.latestDate : '');
+    } catch (e) {
+      $('msg').textContent = '조회 실패: ' + e.message;
+    }
+  }
+
+  function setActive(btn) {
+    document.querySelectorAll('[data-days]').forEach((b) => b.classList.toggle('active', b === btn));
+  }
+
+  document.querySelectorAll('[data-days]').forEach((b) => b.addEventListener('click', async () => {
+    setActive(b);
+    // 기준일은 서버가 정한 최근 저장일이다(오늘 기준이 아님). to만 비우고 from을 맞춘다.
+    const latest = (await get('/api/dashboard/summary', {})).to;
+    const to = new Date(latest + 'T00:00:00');
+    const from = new Date(to);
+    from.setDate(from.getDate() - (Number(b.dataset.days) - 1));
+    load({ from: iso(from), to: latest });
+  }));
+
+  $('apply').addEventListener('click', () => {
+    setActive(null);
+    const params = {};
+    if ($('from').value) params.from = $('from').value;
+    if ($('to').value) params.to = $('to').value;
+    load(params);
+  });
+
+  load({});
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# 대시보드 프로필: `--spring.profiles.active=dashboard`
+# 기본값(web-application-type: none)은 CLI 모드(collect/login/explore)가 수집 후 종료되도록 유지하고,
+# 이 프로필을 켰을 때만 웹 서버를 띄운다. 개인 통계라 로컬에서만 접근 가능하게 묶는다.
+spring:
+  main:
+    web-application-type: servlet
+server:
+  address: 127.0.0.1
+  port: 8080
+  error:
+    # 잘못된 기간 등 400 응답의 사유를 화면에 보여주기 위함(스택트레이스는 노출하지 않는다)
+    include-message: always
