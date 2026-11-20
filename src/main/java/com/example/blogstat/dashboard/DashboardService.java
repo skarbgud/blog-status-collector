@@ -46,8 +46,10 @@ public class DashboardService {
     /**
      * @param days    그 검색어가 들어온 날짜 수
      * @param sources 그 검색어가 들어온 유입처(방문 많은 순)
+     * @param dates   그 검색어가 실제로 들어온 날짜(오름차순). 수집한 날이 아니라 데이터가 발생한 날이다
      */
-    public record QueryShare(String query, long visits, int days, List<String> sources) {
+    public record QueryShare(String query, long visits, int days, List<String> sources,
+                             List<LocalDate> dates) {
     }
 
     /**
@@ -136,7 +138,7 @@ public class DashboardService {
                 .sorted(Comparator.<Map.Entry<String, QueryAgg>>comparingLong(e -> -e.getValue().visits)
                         .thenComparing(Map.Entry::getKey))
                 .map(e -> new QueryShare(e.getKey(), e.getValue().visits, e.getValue().dates.size(),
-                        e.getValue().sourcesByVisits()))
+                        e.getValue().sourcesByVisits(), e.getValue().sortedDates()))
                 .toList();
         List<QueryShare> items = sorted.size() > size ? sorted.subList(0, size) : sorted;
         return new QueryReport(period.from(), period.to(), sorted.size(), total, sorted.size() > size, items);
@@ -146,6 +148,10 @@ public class DashboardService {
         long visits;
         final Set<LocalDate> dates = new HashSet<>();
         final Map<String, Long> sourceVisits = new HashMap<>();
+
+        List<LocalDate> sortedDates() {
+            return dates.stream().sorted().toList();
+        }
 
         List<String> sourcesByVisits() {
             return sourceVisits.entrySet().stream()

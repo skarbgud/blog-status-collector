@@ -39,6 +39,10 @@
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
   th:not(:first-child), td:not(:first-child) { text-align: right; }
+  .badges { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 8px; vertical-align: middle; }
+  .badge.more { color: var(--muted); border-color: var(--line); }
+  .badge { display: inline-block; margin-left: 0; padding: 0 7px; border-radius: 999px; font-size: 11px;
+           line-height: 18px; color: var(--c1); border: 1px solid var(--c1); white-space: nowrap; font-weight: 400; }
   .tag { font-size: 11px; color: var(--c2); margin-left: 6px; }
   #msg { color: var(--muted); margin: 8px 0; }
   .panel h2 .sub { font-weight: 400; font-size: 12px; color: var(--muted); margin-left: 6px; }
@@ -202,6 +206,33 @@
   // 검색어는 외부(검색 사용자) 입력이므로 innerHTML을 쓰지 않고 textContent로만 넣는다.
   let allQueries = [];
 
+  // 검색어가 실제로 들어온 날짜마다 뱃지를 하나씩 붙인다('MM/DD').
+  // 날짜가 많으면 최근 MAX_BADGES개만 보이고, 나머지는 '+N' 뱃지 툴팁으로 보여준다.
+  const MAX_BADGES = 7;
+  function dateBadges(dates) {
+    const wrap = document.createElement('span');
+    wrap.className = 'badges';
+    if (!dates || dates.length === 0) return wrap;
+    const md = (d) => d.slice(5).replace('-', '/');
+    const hidden = dates.length > MAX_BADGES ? dates.slice(0, dates.length - MAX_BADGES) : [];
+    const shown = dates.slice(hidden.length);
+    if (hidden.length > 0) {
+      const more = document.createElement('span');
+      more.className = 'badge more';
+      more.textContent = '+' + hidden.length;
+      more.title = hidden.join(', ');
+      wrap.appendChild(more);
+    }
+    for (const d of shown) {
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = md(d);
+      badge.title = d;
+      wrap.appendChild(badge);
+    }
+    return wrap;
+  }
+
   function renderQueries(report) {
     allQueries = report.items;
     $('q-count').textContent = '서로 다른 검색어 ' + nf.format(report.distinctQueries) + '개 · 방문 '
@@ -228,11 +259,12 @@
     rows.forEach((q, i) => {
       const tr = document.createElement('tr');
       const cells = [String(i + 1), q.query, nf.format(q.visits), String(q.days), q.sources.join(', ')];
-      for (const text of cells) {
+      cells.forEach((text, col) => {
         const td = document.createElement('td');
         td.textContent = text;
+        if (col === 1) td.appendChild(dateBadges(q.dates));
         tr.appendChild(td);
-      }
+      });
       body.appendChild(tr);
     });
   }

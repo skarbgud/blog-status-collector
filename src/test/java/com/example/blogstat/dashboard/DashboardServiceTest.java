@@ -6,6 +6,8 @@ import com.example.blogstat.dashboard.DashboardService.ReferrerShare;
 import com.example.blogstat.dashboard.DashboardService.Summary;
 import com.example.blogstat.domain.ReferrerDaily;
 import com.example.blogstat.domain.ReferrerDailyRepository;
+import com.example.blogstat.domain.SearchQueryDaily;
+import com.example.blogstat.domain.SearchQueryDailyRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -46,6 +48,9 @@ class DashboardServiceTest {
 
     @Autowired
     ReferrerDailyRepository repository;
+
+    @Autowired
+    SearchQueryDailyRepository queryRepository;
 
     private void row(LocalDate date, String name, boolean search, int visits) {
         repository.save(new ReferrerDaily(date, name, visits, 0, search, NOW));
@@ -132,5 +137,21 @@ class DashboardServiceTest {
     void 잘못된_기간은_거부한다() {
         assertThrows(IllegalArgumentException.class, () -> service.resolve(D2, D1));
         assertThrows(IllegalArgumentException.class, () -> service.resolve(D1.minusYears(2), D1));
+    }
+
+    @Test
+    void 검색어는_실제로_들어온_날짜를_오름차순으로_돌려준다() {
+        LocalDateTime collected = LocalDateTime.of(2026, 1, 5, 3, 10);
+        queryRepository.save(new SearchQueryDaily(D2, "naver", "팝업", 2, 0, collected));
+        queryRepository.save(new SearchQueryDaily(D1, "naver", "팝업", 3, 0, collected));
+        queryRepository.save(new SearchQueryDaily(D1, "naver", "후기", 1, 0, collected));
+
+        var report = service.queries(new Period(D1, D3), 10);
+
+        assertEquals(2, report.distinctQueries());
+        assertEquals("팝업", report.items().get(0).query());
+        assertEquals(5, report.items().get(0).visits());
+        assertEquals(List.of(D1, D2), report.items().get(0).dates());
+        assertEquals(List.of(D1), report.items().get(1).dates());
     }
 }
