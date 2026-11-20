@@ -18,9 +18,17 @@
 - 응답 `rows`는 컬럼별 배열(행 배열 아님). `refererTotal` 블록의 `cv`합 == `refererTotalCount`로 검증한다.
 - 오늘 데이터는 집계 중(`dashboard.isToday`)이라 확정값이 아니다. 어제까지를 upsert로 저장한다.
 
+- 검색어: `GET /api/blog/daily/referer/total/detail?timeDimension=DATE&additionalTimeDimension=WEEK&startDate=YYYY-MM-DD&searchEngine=1&refererDomain=<유입처 이름, 공백은 %20>&size=100&exclude=`
+  - 검색 유입처(`referrerSearchEngine=1`)마다 한 번씩 호출한다. 응답 `refererDetail`의 `searchQuery`, `cv`(그 유입처 안의 방문수), `cv_p`.
+  - 과거 날짜도 조회된다. `size`는 화면이 20을 쓰고 우리는 100을 쓴다(100도 정상 응답). 검색어 합계가 유입처 방문수와 다르면 일부만 온 것이라 경고를 출력한다.
+  - 한 유입처의 검색어 수집이 실패해도 그 날의 나머지는 저장한다(세션 만료는 그대로 중단).
+
 ## 저장
 - 테이블 `referrer_daily`, 유니크 `(stat_date, referrer_name)`. H2 파일 DB(`./data/blogstat`).
-- `ReferrerDailyService.save`는 날짜 단위 트랜잭션에서 그 날짜 행을 지우고 다시 넣는다(멱등). 오늘 데이터는 저장하지 않는다.
+- 테이블 `search_query_daily`, 유니크 `(stat_date, referrer_name, search_query)`. 같은 (유입처, 검색어)가 한 날짜에 두 번 오면 합쳐서 저장한다.
+- `ReferrerDailyService.save`는 날짜 단위 트랜잭션에서 그 날짜의 유입경로와 검색어를 지우고 다시 넣는다(멱등). 오늘 데이터는 저장하지 않는다.
+- H2 파일 DB는 **한 프로세스만** 열 수 있다. 대시보드가 떠 있으면 `collect`가 "Database may be already in use"로 실패한다. 자동 수집과 대시보드는 한 프로세스(`--spring.profiles.active=dashboard --app.mode=schedule`)로 띄운다. 별도 프로세스가 필요하면 `--spring.datasource.url=jdbc:h2:mem:x` 등으로 DB를 분리한다.
+- 검색어 과거분 보충: 이미 저장된 날짜도 `collect --from --to`로 다시 수집하면 검색어가 채워진다(교체 저장).
 
 ## 세션 (중요)
 - persistent profile 쿠키 DB만으로는 네이버 로그인이 다음 실행에 유지되지 않았다(원인 미확인, 브라우저 종료 후 쿠키 DB가 비어 있음).

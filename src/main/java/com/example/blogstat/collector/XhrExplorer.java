@@ -29,6 +29,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 public class XhrExplorer implements CommandLineRunner {
 
     private final PlaywrightSessionFactory sessionFactory;
+    private final SessionStore sessionStore;
     private final String statUrl;
     private final Path outDir;
     private final int loginTimeoutSec;
@@ -38,11 +39,13 @@ public class XhrExplorer implements CommandLineRunner {
     private int seq = 0;
 
     public XhrExplorer(PlaywrightSessionFactory sessionFactory,
-                       @Value("${app.stat-url}") String statUrl,
+                       SessionStore sessionStore,
+                       @Value("${app.explore.url:${app.stat-url}}") String statUrl,
                        @Value("${app.explore.output-dir}") String outDir,
                        @Value("${app.explore.login-timeout-sec}") int loginTimeoutSec,
                        @Value("${app.explore.extra-observe-sec}") int extraObserveSec) {
         this.sessionFactory = sessionFactory;
+        this.sessionStore = sessionStore;
         this.statUrl = statUrl;
         this.outDir = Paths.get(outDir);
         this.loginTimeoutSec = loginTimeoutSec;
@@ -72,7 +75,9 @@ public class XhrExplorer implements CommandLineRunner {
             });
 
             Page page = context.pages().isEmpty() ? context.newPage() : context.pages().get(0);
-            if (!LoginSupport.ensureLoggedIn(context, page, loginTimeoutSec)) {
+            // 저장해 둔 로그인 쿠키를 복원한다. 쿠키 파일이 없을 때만 수동 로그인을 기다린다.
+            if (sessionStore.restore(context) == 0
+                    && !LoginSupport.ensureLoggedIn(context, page, loginTimeoutSec)) {
                 throw new SessionExpiredException("로그인 대기 시간이 초과되었습니다.");
             }
 
@@ -94,20 +99,33 @@ public class XhrExplorer implements CommandLineRunner {
             Files.writeString(outDir.resolve("page.html"), page.content(), StandardCharsets.UTF_8);
 
             System.out.println("[탐색] 이제 " + extraObserveSec
-                    + "초 동안 추가 관찰합니다. 통계 화면이 정상이면 날짜를 이전 날로 한 번 바꿔 보세요. "
-                    + "'접근할 수 없는 페이지'가 나오면 블로그 관리 > 통계 > 유입경로 메뉴로 직접 들어가 주세요.");
+                    + "초 동안 추가 관찰합니다. 브라우저에서 직접 조작하세요. 이 시간 동안의 요청이 모두 기록됩니다.");
             for (int i = 0; i < extraObserveSec; i++) {
                 page.waitForTimeout(1000);
                 drain(captured);
             }
             drain(captured);
+            // 사용자가 조작한 뒤의 화면 텍스트도 남겨 둔다(펼친 검색어가 DOM에 있는지 확인용).
+            try {
+                Files.writeString(outDir.resolve("final-page-text.txt"),
+                        page.url() + "\n-----\n" + page.innerText("body"), StandardCharsets.UTF_8);
+            } catch (RuntimeException e) {
+                System.out.println("[진단] 최종 화면 텍스트 저장 실패: " + e.getMessage());
+            }
             System.out.println("[완료] 결과: " + outDir.toAbsolutePath());
         }
     }
 
     private static boolean isInteresting(Request req) {
         String type = req.resourceType();
-        return "xhr".equals(type) || "fetch".equals(type) || "document".equals(type);
+        if (!("xhr".equals(type) || "fetch".equals(type) || "document".equals(type))) {
+            return false;
+        }
+        // 광고/트래킹 도메인 잡음을 줄이려고 블로그·통계 도메인만 본다.
+        String url = req.url();
+        int hostEnd = url.indexOf('/', 8);
+        String host = hostEnd < 0 ? url : url.substring(0, hostEnd);
+        return host.contains("blog") || host.contains("stat");
     }
 
     private void drain(Queue<Request> queue) throws IOException {

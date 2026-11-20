@@ -2,6 +2,7 @@ package com.example.blogstat.dashboard;
 
 import com.example.blogstat.dashboard.DashboardService.DailyPoint;
 import com.example.blogstat.dashboard.DashboardService.Period;
+import com.example.blogstat.dashboard.DashboardService.QueryReport;
 import com.example.blogstat.dashboard.DashboardService.ReferrerShare;
 import com.example.blogstat.dashboard.DashboardService.Summary;
 import com.example.blogstat.collector.SessionStatus;
@@ -62,6 +63,15 @@ public class DashboardController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(defaultValue = "10") int limit) {
         return service.referrers(period(from, to), limit);
+    }
+
+    /** 기간 내 모든 검색어를 방문 많은 순으로. limit 기본 500, 최대 2000. */
+    @GetMapping("/queries")
+    public QueryReport queries(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(defaultValue = "500") int limit) {
+        return service.queries(period(from, to), limit);
     }
 
     private Period period(LocalDate from, LocalDate to) {

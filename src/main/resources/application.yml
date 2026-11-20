@@ -36,6 +36,8 @@ app:
     cap-backoff-ms: 30000
     request-timeout-ms: 10000
     headless: true
+    # 검색 유입처 하나당 가져올 검색어 최대 개수(화면은 20을 쓴다)
+    query-size: 100
   explore:
     output-dir: explore-output
     # 로그인 완료까지 최대 대기(초)

@@ -42,10 +42,16 @@ public class CollectRunner implements ApplicationRunner {
                 System.out.printf("   %-24s %5d  %6.2f%%%s%n", row.referrer(), row.visits(), row.ratio(),
                         row.searchEngine() ? "  [검색]" : "");
             }
+            if (!day.queries().isEmpty()) {
+                System.out.println("   검색어 " + day.queries().size() + "건:");
+                for (SearchQueryRow q : day.queries()) {
+                    System.out.printf("     %-24s %3d  %s%n", q.referrer(), q.visits(), q.query());
+                }
+            }
             System.out.println(result.saved() < 0
                     ? "   → 집계 중인 오늘 데이터라 저장하지 않음"
-                    : "   → H2 저장 " + result.saved() + "행 (DB의 해당 날짜 행 수: "
-                    + service.count(day.date()) + ")");
+                    : "   → H2 저장 " + result.saved() + "행, 검색어 " + service.countQueries(day.date())
+                    + "건 (DB의 해당 날짜 유입경로 행 수: " + service.count(day.date()) + ")");
         }
     }
 

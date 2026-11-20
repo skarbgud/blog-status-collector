@@ -1,0 +1,22 @@
+{
+  "statusCode": 200,
+  "message": "",
+  "result": {
+    "statDataList": [
+      {
+        "dataId": "refererDetail",
+        "data": {
+          "columnInfo": ["date", "searchQuery", "referrerUrl", "cv", "cv_p"],
+          "rows": {
+            "date": ["2026-01-02", "2026-01-02", "2026-01-02"],
+            "cv": [3, 2, 1],
+            "searchQuery": ["검색어 하나", "  공백 있는 검색어  ", "특수문자 <b>&\"'"],
+            "cv_p": [50.0, 33.3, 16.7],
+            "referrerUrl": ["https://m.search.example/a", "https://m.search.example/b", "https://m.search.example/c"]
+          }
+        },
+        "utime": "2026-01-03T00:10:00"
+      }
+    ]
+  }
+}

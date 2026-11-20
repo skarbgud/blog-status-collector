@@ -9,6 +9,8 @@ import com.microsoft.playwright.options.RequestOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +38,7 @@ public class RefererCollector {
     private final long capBackoffMs;
     private final long requestTimeoutMs;
     private final boolean headless;
+    private final int querySize;
 
     public RefererCollector(PlaywrightSessionFactory sessionFactory,
                             SessionStore sessionStore,
@@ -48,7 +51,9 @@ public class RefererCollector {
                             @Value("${app.collect.base-backoff-ms}") long baseBackoffMs,
                             @Value("${app.collect.cap-backoff-ms}") long capBackoffMs,
                             @Value("${app.collect.request-timeout-ms}") long requestTimeoutMs,
-                            @Value("${app.collect.headless}") boolean headless) {
+                            @Value("${app.collect.headless}") boolean headless,
+                            @Value("${app.collect.query-size}") int querySize) {
+        this.querySize = querySize;
         this.headless = headless;
         this.sessionStore = sessionStore;
         this.sessionFactory = sessionFactory;
@@ -106,8 +111,65 @@ public class RefererCollector {
                 + "?timeDimension=DATE&additionalTimeDimension=WEEK"
                 + "&startDate=" + date
                 + "&exclude=weekAndMonthAnalysis"
-                + "&_=" + System.currentTimeMillis() + "_" + ThreadLocalRandom.current().nextInt(10_000);
+                + "&_=" + nonce();
 
+        RefererDay day = parser.parse(fetchBody(api, url, date.toString()), date);
+        if (day.today()) {
+            return day; // 집계 중인 오늘 데이터는 저장하지 않으므로 검색어도 가져오지 않는다.
+        }
+        return day.withQueries(fetchQueries(api, day));
+    }
+
+    /**
+     * 검색 유입처(searchEngine=true)마다 하위 검색어를 가져온다.
+     * 한 유입처의 검색어를 못 가져와도 그 날의 나머지 데이터는 살린다(세션 만료는 예외로 그대로 중단).
+     */
+    private List<SearchQueryRow> fetchQueries(APIRequestContext api, RefererDay day) {
+        List<SearchQueryRow> all = new ArrayList<>();
+        for (RefererRow row : day.rows()) {
+            if (!row.searchEngine()) {
+                continue;
+            }
+            sleep(ThreadLocalRandom.current().nextLong(minDelayMs, maxDelayMs + 1));
+            String label = day.date() + " " + row.referrer() + " 검색어";
+            try {
+                String url = detailUrl(baseUrl, day.date(), row.referrer(), querySize, nonce());
+                List<SearchQueryRow> queries = parser.parseQueries(fetchBody(api, url, label), day.date(), row.referrer());
+                int sum = queries.stream().mapToInt(SearchQueryRow::visits).sum();
+                if (sum != row.visits()) {
+                    System.out.println("[경고] " + label + " 합계 " + sum + " != 유입처 방문수 " + row.visits()
+                            + " (상한 size=" + querySize + " 때문에 일부만 왔을 수 있음)");
+                }
+                all.addAll(queries);
+            } catch (IllegalStateException | RefererParseException e) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw e;
+                }
+                System.out.println("[경고] " + label + " 수집 실패, 이 유입처의 검색어는 건너뜁니다: " + e.getMessage());
+            }
+        }
+        return all;
+    }
+
+    /** 검색 유입처 하나의 하위 항목(검색어) API 주소. 공백은 화면과 같이 %20으로 인코딩한다. */
+    static String detailUrl(String baseUrl, LocalDate date, String referrer, int size, String nonce) {
+        String encoded = URLEncoder.encode(referrer, StandardCharsets.UTF_8).replace("+", "%20");
+        return baseUrl + API_PATH + "/detail"
+                + "?timeDimension=DATE&additionalTimeDimension=WEEK"
+                + "&startDate=" + date
+                + "&searchEngine=1"
+                + "&refererDomain=" + encoded
+                + "&size=" + size
+                + "&exclude="
+                + "&_=" + nonce;
+    }
+
+    private static String nonce() {
+        return System.currentTimeMillis() + "_" + ThreadLocalRandom.current().nextInt(10_000);
+    }
+
+    /** 재시도 정책(타임아웃/429/5xx 백오프, 401/403은 세션 만료)을 적용해 GET하고 본문을 돌려준다. */
+    private String fetchBody(APIRequestContext api, String url, String label) {
         for (int attempt = 0; ; attempt++) {
             long retryAfterMs = -1;
             String failure;
@@ -119,7 +181,7 @@ public class RefererCollector {
                 int status = response.status();
 
                 if (status == 200) {
-                    return parser.parse(response.text(), date);
+                    return response.text();
                 }
                 if (status == 401 || status == 403) {
                     // 재시도해도 소용없다. 세션을 다시 만들어야 한다.
@@ -133,7 +195,7 @@ public class RefererCollector {
                     failure = "HTTP " + status;
                 } else {
                     // 400/404 등은 재시도 대상이 아니다.
-                    throw new IllegalStateException(date + " 수집 실패: HTTP " + status);
+                    throw new IllegalStateException(label + " 수집 실패: HTTP " + status);
                 }
             } catch (SessionExpiredException | RefererParseException | IllegalStateException e) {
                 throw e;
@@ -143,12 +205,12 @@ public class RefererCollector {
 
             if (attempt >= maxRetries) {
                 throw new IllegalStateException(
-                        date + " 수집 실패: 재시도 " + maxRetries + "회 소진 (" + failure + ")");
+                        label + " 수집 실패: 재시도 " + maxRetries + "회 소진 (" + failure + ")");
             }
             long delay = retryAfterMs >= 0
                     ? Math.min(retryAfterMs, capBackoffMs)
                     : Backoff.delayMillis(attempt, baseBackoffMs, capBackoffMs, ThreadLocalRandom.current().nextDouble());
-            System.out.println("[재시도] " + date + " " + failure + " → " + delay + "ms 후 재시도 ("
+            System.out.println("[재시도] " + label + " " + failure + " → " + delay + "ms 후 재시도 ("
                     + (attempt + 1) + "/" + maxRetries + ")");
             sleep(delay);
         }
