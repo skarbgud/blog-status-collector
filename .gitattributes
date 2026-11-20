@@ -1,0 +1,3 @@
+# Windows 배치 파일은 CRLF여야 cmd.exe가 한글 주석이 든 줄을 제대로 읽는다(LF면 줄이 잘못 쪼개져 실행이 깨진다).
+*.cmd text eol=crlf
+*.bat text eol=crlf
