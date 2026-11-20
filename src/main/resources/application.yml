@@ -15,6 +15,13 @@ app:
   mode: none
   profile-dir: .playwright-profile
   stat-url: https://blog.stat.naver.com/m/blog/daily/referer
+  schedule:
+    # 매일 03:10(KST). 전날 통계가 확정된 뒤에 수집한다.
+    cron: "0 10 3 * * *"
+    # 한 회차에 보충할 최대 일수
+    max-catchup-days: 7
+    # 앱 시작 직후에도 한 번 실행(PC가 꺼져 있던 날 보충)
+    run-on-start: true
   collect:
     base-url: https://blog.stat.naver.com
     # 날짜 사이 지연(저빈도 수집)

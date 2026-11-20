@@ -5,8 +5,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /** 수집 결과를 H2에 저장한다. 날짜 단위로 전부 저장되거나 전부 롤백된다. */
 @Service
@@ -42,7 +44,13 @@ public class ReferrerDailyService {
     }
 
     @Transactional(readOnly = true)
-    public long count(java.time.LocalDate date) {
+    public long count(LocalDate date) {
         return repository.countByStatDate(date);
+    }
+
+    /** 저장된 가장 최근 날짜. 아무것도 없으면 empty. */
+    @Transactional(readOnly = true)
+    public Optional<LocalDate> latestStatDate() {
+        return repository.findLatestStatDate();
     }
 }

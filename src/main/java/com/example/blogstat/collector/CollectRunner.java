@@ -20,11 +20,11 @@ public class CollectRunner implements ApplicationRunner {
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
-    private final RefererCollector collector;
+    private final CollectJob job;
     private final ReferrerDailyService service;
 
-    public CollectRunner(RefererCollector collector, ReferrerDailyService service) {
-        this.collector = collector;
+    public CollectRunner(CollectJob job, ReferrerDailyService service) {
+        this.job = job;
         this.service = service;
     }
 
@@ -34,18 +34,18 @@ public class CollectRunner implements ApplicationRunner {
         LocalDate from = option(args, "from", yesterday);
         LocalDate to = option(args, "to", from);
 
-        List<RefererDay> days = collector.collect(from, to);
-        for (RefererDay day : days) {
+        for (CollectJob.DayResult result : job.run(from, to)) {
+            RefererDay day = result.day();
             System.out.println("== " + day.date() + (day.today() ? " (오늘, 집계 중)" : "")
                     + " 합계 " + day.sumVisits() + " / API 합계 " + day.totalCount());
             for (RefererRow row : day.rows()) {
                 System.out.printf("   %-24s %5d  %6.2f%%%s%n", row.referrer(), row.visits(), row.ratio(),
                         row.searchEngine() ? "  [검색]" : "");
             }
-            int saved = service.save(day);
-            System.out.println(saved < 0
+            System.out.println(result.saved() < 0
                     ? "   → 집계 중인 오늘 데이터라 저장하지 않음"
-                    : "   → H2 저장 " + saved + "행 (DB의 해당 날짜 행 수: " + service.count(day.date()) + ")");
+                    : "   → H2 저장 " + result.saved() + "행 (DB의 해당 날짜 행 수: "
+                    + service.count(day.date()) + ")");
         }
     }
 

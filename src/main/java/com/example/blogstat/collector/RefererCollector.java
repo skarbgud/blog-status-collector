@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Consumer;
 
 /**
  * 저장된 로그인 세션(persistent context 쿠키)으로 유입경로 API를 날짜별로 호출한다.
@@ -64,6 +65,15 @@ public class RefererCollector {
 
     /** from~to(양끝 포함)를 날짜 순으로 수집한다. 날짜 사이에는 2~5초 지연을 둔다. */
     public List<RefererDay> collect(LocalDate from, LocalDate to) {
+        List<RefererDay> result = new ArrayList<>();
+        collect(from, to, result::add);
+        return result;
+    }
+
+    /**
+     * 날짜 하나를 받을 때마다 onDay를 바로 호출한다. 중간에 실패해도 이미 받은 날짜는 처리된 상태로 남는다.
+     */
+    public void collect(LocalDate from, LocalDate to, Consumer<RefererDay> onDay) {
         if (from.isAfter(to)) {
             throw new IllegalArgumentException("from이 to보다 늦습니다: " + from + " > " + to);
         }
@@ -78,16 +88,16 @@ public class RefererCollector {
             }
 
             APIRequestContext api = context.request();
-            List<RefererDay> result = new ArrayList<>();
+            boolean first = true;
             for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
-                if (!result.isEmpty()) {
+                if (!first) {
                     sleep(ThreadLocalRandom.current().nextLong(minDelayMs, maxDelayMs + 1));
                 }
-                result.add(fetchDay(api, date));
+                first = false;
+                onDay.accept(fetchDay(api, date));
             }
             // 서버가 갱신해 준 쿠키가 있으면 다음 실행에서도 쓰도록 되저장한다.
             sessionStore.save(context);
-            return result;
         }
     }
 
