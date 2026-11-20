@@ -8,10 +8,14 @@
   :root {
     --bg: #f6f7f9; --card: #ffffff; --text: #1d2430; --muted: #6b7686; --line: #e3e7ee;
     --c1: #2563eb; --c2: #16a34a; --grid: rgba(0,0,0,.08);
+    --warn-bg: #fff7e0; --warn-line: #f0c36d; --warn-text: #7a4b00;
+    --danger-bg: #fdecec; --danger-line: #f1a3a3; --danger-text: #8a1f1f;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #11151c; --card: #1a2029; --text: #e6e9ef; --muted: #9aa5b5; --line: #2a3340;
-            --c1: #60a5fa; --c2: #4ade80; --grid: rgba(255,255,255,.1); }
+            --c1: #60a5fa; --c2: #4ade80; --grid: rgba(255,255,255,.1);
+            --warn-bg: #3a2e12; --warn-line: #7a5d1c; --warn-text: #f3d28a;
+            --danger-bg: #3d1a1a; --danger-line: #8a3a3a; --danger-text: #f5b1b1; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
@@ -37,11 +41,16 @@
   th:not(:first-child), td:not(:first-child) { text-align: right; }
   .tag { font-size: 11px; color: var(--c2); margin-left: 6px; }
   #msg { color: var(--muted); margin: 8px 0; }
+  .banner { border: 1px solid; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
+  .banner.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-text); }
+  .banner.danger { background: var(--danger-bg); border-color: var(--danger-line); color: var(--danger-text); }
 </style>
 </head>
 <body>
 <main>
   <h1>블로그 유입 대시보드</h1>
+
+  <div id="session-banner" class="banner" role="alert" hidden></div>
 
   <div class="controls">
     <button data-days="7">7일</button>
@@ -188,6 +197,23 @@
     }
   }
 
+  // 로그인 쿠키 만료 경고. 문구는 서버가 만든 값이지만 innerHTML 없이 textContent로만 넣는다.
+  async function loadSession() {
+    const banner = $('session-banner');
+    try {
+      const s = await get('/api/dashboard/session', {});
+      if (s.state === 'OK') {
+        banner.hidden = true;
+        return;
+      }
+      banner.textContent = s.message;
+      banner.className = 'banner ' + (s.state === 'EXPIRED' || s.state === 'MISSING' ? 'danger' : 'warn');
+      banner.hidden = false;
+    } catch (e) {
+      banner.hidden = true; // 경고를 못 가져와도 대시보드 본문은 계속 보여 준다.
+    }
+  }
+
   function setActive(btn) {
     document.querySelectorAll('[data-days]').forEach((b) => b.classList.toggle('active', b === btn));
   }
@@ -210,6 +236,7 @@
     load(params);
   });
 
+  loadSession();
   load({});
 })();
 </script>

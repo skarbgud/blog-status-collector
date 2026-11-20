@@ -15,6 +15,9 @@ app:
   mode: none
   profile-dir: .playwright-profile
   stat-url: https://blog.stat.naver.com/m/blog/daily/referer
+  session:
+    # 로그인 쿠키 만료까지 이 일수 이하로 남으면 경고(로그, 대시보드 배너)
+    warn-days: 7
   schedule:
     # 매일 03:10(KST). 전날 통계가 확정된 뒤에 수집한다.
     cron: "0 10 3 * * *"

@@ -2,6 +2,8 @@ package com.example.blogstat.schedule;
 
 import com.example.blogstat.collector.CollectJob;
 import com.example.blogstat.collector.SessionExpiredException;
+import com.example.blogstat.collector.SessionStatus;
+import com.example.blogstat.collector.SessionStore;
 import com.example.blogstat.domain.ReferrerDailyService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +32,7 @@ public class ScheduledCollector {
 
     private final CollectJob job;
     private final ReferrerDailyService service;
+    private final SessionStore sessionStore;
     private final Clock clock;
     private final int maxCatchUpDays;
     private final boolean runOnStart;
@@ -39,11 +42,13 @@ public class ScheduledCollector {
 
     public ScheduledCollector(CollectJob job,
                               ReferrerDailyService service,
+                              SessionStore sessionStore,
                               Clock clock,
                               @Value("${app.schedule.max-catchup-days}") int maxCatchUpDays,
                               @Value("${app.schedule.run-on-start}") boolean runOnStart) {
         this.job = job;
         this.service = service;
+        this.sessionStore = sessionStore;
         this.clock = clock;
         this.maxCatchUpDays = maxCatchUpDays;
         this.runOnStart = runOnStart;
@@ -68,6 +73,7 @@ public class ScheduledCollector {
             return;
         }
         try {
+            warnIfSessionNeedsAttention();
             LocalDate yesterday = LocalDate.now(clock).minusDays(1);
             Optional<CatchUpPlanner.Range> plan =
                     CatchUpPlanner.plan(service.latestStatDate().orElse(null), yesterday, maxCatchUpDays);
@@ -87,6 +93,19 @@ public class ScheduledCollector {
             log.error("수집 중 오류가 발생했습니다. 다음 회차에 다시 시도합니다.", e);
         } finally {
             running.set(false);
+        }
+    }
+
+    /**
+     * 만료가 임박했거나 이미 끊긴 세션을 수집 전에 알린다.
+     * 서버가 쿠키 수명을 연장해 줄 수 있고 수집 성공 시 쿠키를 다시 저장하므로, 만료로 보여도 수집은 시도한다.
+     */
+    private void warnIfSessionNeedsAttention() {
+        SessionStatus status = sessionStore.status(clock.instant());
+        if (status.isBroken()) {
+            log.error("[세션] {}", status.message());
+        } else if (status.needsAttention()) {
+            log.warn("[세션] {}", status.message());
         }
     }
 }

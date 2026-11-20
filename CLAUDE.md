@@ -25,6 +25,7 @@
 ## 세션 (중요)
 - persistent profile 쿠키 DB만으로는 네이버 로그인이 다음 실행에 유지되지 않았다(원인 미확인, 브라우저 종료 후 쿠키 DB가 비어 있음).
 - 그래서 로그인 직후 쿠키를 `.playwright-profile/session-cookies.json`에 저장하고, 수집 때 복원한다. 이 파일은 로그인 권한 그 자체다.
+- 만료 경고: `SessionStore.status()`가 NID_SES/NID_AUT 중 빠른 만료 시각으로 남은 일수를 계산한다(`app.session.warn-days`, 기본 7일 이내면 임박). 스케줄러가 돌 때마다 로그에 남기고, 대시보드 상단 배너(`GET /api/dashboard/session`)로 보여준다. 쿠키 값은 어디에도 내보내지 않는다.
 - 쿠키 만료(HTTP 401/403)는 재시도하지 않고 `SessionExpiredException`으로 중단한다. 로그인을 다시 하면 된다.
 
 ## 규칙
