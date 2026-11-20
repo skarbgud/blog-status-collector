@@ -14,6 +14,8 @@
 - 스냅샷만 다시 내보내기: `--app.mode=publish` (스냅샷 도입 전 데이터를 처음 내보낼 때, 내보내기 실패 시)
 - **직접 실행용 스크립트(Claude 없이)**: `scripts\collect-queries.cmd [일수] [--force]`, `scripts\dashboard.cmd`, `scripts\scheduler.cmd`, `scripts\login.cmd`
 - 탐색(XHR 로깅): `./gradlew bootRun --args="--app.mode=explore"`
+- 통계 메뉴 전체 탐색: `--app.mode=catalog` — 저장된 쿠키로 headless로 메뉴 링크를 따라가며 각 화면이 부르는 `/api/...`와 응답 구조(키, 컬럼 이름)를 `explore-output/catalog/catalog.md`에 정리한다. 페이지 사이 2~5초, 최대 `app.catalog.max-pages`(기본 40). 콘솔에는 구조만 찍고 값은 찍지 않는다.
+  - 2026-11-21 결과: API 29종. 대부분 `?timeDimension=DATE&startDate=...` 형식이고, 응답 `rows`는 referer와 같은 컬럼별 배열이다. 일별 지표(`daily/cv`, `visit/*` 등)는 **한 번 호출에 15일치**가 온다.
 - 테스트: `./gradlew test`
 
 ## 데이터 소스
