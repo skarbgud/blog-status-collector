@@ -1,9 +1,21 @@
-# 대시보드 프로필: `--spring.profiles.active=dashboard`
-# 기본값(web-application-type: none)은 CLI 모드(collect/login/explore)가 수집 후 종료되도록 유지하고,
-# 이 프로필을 켰을 때만 웹 서버를 띄운다. 개인 통계라 로컬에서만 접근 가능하게 묶는다.
+# 대시보드 프로필: `--spring.profiles.active=dashboard`  (읽기 전용 프로세스)
+#
+# 읽기/쓰기 분리:
+#  - 쓰기(collect/schedule)만 ./data/blogstat 파일 DB를 연다. H2 파일 DB는 한 프로세스만 열 수 있다.
+#  - 쓰기가 끝날 때마다 스냅샷(app.replica.file)을 내보낸다.
+#  - 대시보드는 파일 DB를 열지 않고, 스냅샷을 인메모리 DB에 올려 읽는다. 스냅샷이 바뀌면 자동으로 다시 올린다.
+#  그래서 둘을 동시에 켜도 잠금 충돌이 없고, 외부로 열리는 DB 포트도 없다(AUTO_SERVER를 쓰지 않는다).
+#
+# 개인 통계라 웹 서버도 로컬에서만 접근 가능하게 묶는다.
 spring:
   main:
     web-application-type: servlet
+  datasource:
+    url: jdbc:h2:mem:readonly;DB_CLOSE_DELAY=-1
+  jpa:
+    hibernate:
+      # 스냅샷이 아직 없을 때도 빈 화면이 뜨도록 빈 테이블을 만들어 둔다. 스냅샷을 올리면 같은 구조로 교체된다.
+      ddl-auto: update
 server:
   address: 127.0.0.1
   port: 8080

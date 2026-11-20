@@ -82,6 +82,18 @@ public class RefererCollector {
         if (from.isAfter(to)) {
             throw new IllegalArgumentException("from이 to보다 늦습니다: " + from + " > " + to);
         }
+        List<LocalDate> dates = new ArrayList<>();
+        for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
+            dates.add(date);
+        }
+        collect(dates, onDay);
+    }
+
+    /** 지정한 날짜들만 주어진 순서대로 수집한다. 이미 받은 날짜를 건너뛸 때 쓴다. */
+    public void collect(List<LocalDate> dates, Consumer<RefererDay> onDay) {
+        if (dates.isEmpty()) {
+            return;
+        }
 
         try (Playwright playwright = Playwright.create();
              BrowserContext context = sessionFactory.open(playwright, headless)) {
@@ -94,7 +106,7 @@ public class RefererCollector {
 
             APIRequestContext api = context.request();
             boolean first = true;
-            for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
+            for (LocalDate date : dates) {
                 if (!first) {
                     sleep(ThreadLocalRandom.current().nextLong(minDelayMs, maxDelayMs + 1));
                 }

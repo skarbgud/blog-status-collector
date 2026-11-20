@@ -3,6 +3,9 @@ spring:
     # 현재는 CLI 러너만 사용. 대시보드 단계에서 제거
     web-application-type: none
   datasource:
+    # 쓰기 프로세스(collect/schedule/login)만 이 파일을 연다. H2 파일 DB는 한 프로세스만 열 수 있다.
+    # AUTO_SERVER는 쓰지 않는다: sa/빈 비밀번호로 DB TCP 포트가 모든 인터페이스에 열려 개인 통계가 노출된다.
+    # 대시보드(읽기)는 이 파일을 열지 않고 아래 스냅샷을 읽는다(application-dashboard.yml 참고).
     url: jdbc:h2:file:./data/blogstat
     driver-class-name: org.h2.Driver
     username: sa
@@ -15,6 +18,12 @@ app:
   mode: none
   profile-dir: .playwright-profile
   stat-url: https://blog.stat.naver.com/m/blog/daily/referer
+  replica:
+    # 쓰기 쪽이 내보내고 대시보드가 읽는 스냅샷 파일(개인 통계라 data/ 아래, gitignore 대상)
+    file: ./data/replica/snapshot.sql
+  queries:
+    # 검색어만 따로 수집(--app.mode=collect-queries)할 때 기본으로 거슬러 올라갈 일수
+    default-days: 30
   session:
     # 로그인 쿠키 만료까지 이 일수 이하로 남으면 경고(로그, 대시보드 배너)
     warn-days: 7

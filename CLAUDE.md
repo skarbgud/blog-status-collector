@@ -9,7 +9,10 @@
 - 로그인(1회, 수동): `./gradlew bootRun --args="--app.mode=login"` — 네이버 로그인 화면에서 "로그인 상태 유지" 체크
 - 수집: `./gradlew bootRun --args="--app.mode=collect --from=2026-11-18 --to=2026-11-19"` (기본: 어제 하루)
 - 매일 자동 수집(상주): `./gradlew bootRun --args="--app.mode=schedule"` — 매일 03:10(KST) + 시작 직후 1회, 마지막 저장일 다음 날부터 어제까지 보충(최대 7일). 세션이 만료되면 로그만 남기고 그 회차를 중단한다. cron은 `app.schedule.cron`(환경변수 `APP_SCHEDULE_CRON`)으로 바꾼다.
-- 대시보드: `./gradlew bootRun --args="--spring.profiles.active=dashboard"` → http://127.0.0.1:8080 (로컬 바인딩, 조회 전용). 자동 수집과 함께 띄우려면 `--app.mode=schedule`를 같이 준다.
+- 대시보드(읽기 전용): `./gradlew bootRun --args="--spring.profiles.active=dashboard"` → http://127.0.0.1:8080 (로컬 바인딩). **`--app.mode=...`와 함께 켜지 않는다**(시작이 막힌다). 수집은 별도 프로세스로 띄우고, 둘은 동시에 켜도 된다.
+- 검색어만 길게 수집: `./gradlew bootRun --args="--app.mode=collect-queries --days=30"` (`--from/--to`, `--force` 가능). 이미 검색어가 있는 날짜는 건너뛴다. 유입경로 표는 건드리지 않는다.
+- 스냅샷만 다시 내보내기: `--app.mode=publish` (스냅샷 도입 전 데이터를 처음 내보낼 때, 내보내기 실패 시)
+- **직접 실행용 스크립트(Claude 없이)**: `scripts\collect-queries.cmd [일수] [--force]`, `scripts\dashboard.cmd`, `scripts\scheduler.cmd`, `scripts\login.cmd`
 - 탐색(XHR 로깅): `./gradlew bootRun --args="--app.mode=explore"`
 - 테스트: `./gradlew test`
 
@@ -27,7 +30,12 @@
 - 테이블 `referrer_daily`, 유니크 `(stat_date, referrer_name)`. H2 파일 DB(`./data/blogstat`).
 - 테이블 `search_query_daily`, 유니크 `(stat_date, referrer_name, search_query)`. 같은 (유입처, 검색어)가 한 날짜에 두 번 오면 합쳐서 저장한다.
 - `ReferrerDailyService.save`는 날짜 단위 트랜잭션에서 그 날짜의 유입경로와 검색어를 지우고 다시 넣는다(멱등). 오늘 데이터는 저장하지 않는다.
-- H2 파일 DB는 **한 프로세스만** 열 수 있다. 대시보드가 떠 있으면 `collect`가 "Database may be already in use"로 실패한다. 자동 수집과 대시보드는 한 프로세스(`--spring.profiles.active=dashboard --app.mode=schedule`)로 띄운다. 별도 프로세스가 필요하면 `--spring.datasource.url=jdbc:h2:mem:x` 등으로 DB를 분리한다.
+- **읽기/쓰기 분리**: H2 파일 DB는 한 프로세스만 열 수 있다. 그래서
+  - 쓰기(`collect`, `collect-queries`, `schedule`, `login`)만 `./data/blogstat`를 연다. 쓰기가 끝날 때마다(`CollectJob`, 실패해도 그때까지 저장분) 일관된 스냅샷 `./data/replica/snapshot.sql`(H2 `SCRIPT`)을 내보낸다(`SnapshotPublisher`, 임시 파일에 쓰고 이름을 바꿔 원자적으로 교체).
+  - 대시보드는 파일 DB를 열지 않고 인메모리 H2에 스냅샷을 올려 읽는다(`ReplicaLoader`). 스냅샷이 바뀌면 다음 요청 때 자동으로 다시 올린다(대시보드 재시작 불필요). 다시 올리는 동안은 쓰기 잠금으로 요청을 잠깐 막는다.
+  - 결과: 파일 잠금 충돌이 없고, 대시보드가 원본을 바꿀 방법이 없다.
+- **`AUTO_SERVER=TRUE`를 쓰지 않는다.** sa/빈 비밀번호로 H2 TCP 포트가 모든 인터페이스(`::`)에 열려 개인 통계가 네트워크에 노출된다. 잠금 문제는 위 분리로 푼다.
+- 쓰기 프로세스는 하나씩만 띄운다(예: `scheduler.cmd`가 돌아가는 중에는 `collect-queries.cmd`가 같은 파일을 열 수 없다). 스케줄러를 켜 둔 채 검색어를 길게 받으려면 스케줄러를 잠깐 끄고 실행한다.
 - 검색어 과거분 보충: 이미 저장된 날짜도 `collect --from --to`로 다시 수집하면 검색어가 채워진다(교체 저장).
 
 ## 세션 (중요)

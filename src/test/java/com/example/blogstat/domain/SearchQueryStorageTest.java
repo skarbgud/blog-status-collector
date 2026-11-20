@@ -98,6 +98,56 @@ class SearchQueryStorageTest {
         assertEquals(0, service.countQueries(D1));
     }
 
+    // ---- 검색어만 따로 저장 ----
+
+    @Autowired
+    ReferrerDailyRepository referrerRepository;
+
+    @Test
+    void 검색어만_저장하면_유입경로는_건드리지_않는다() {
+        service.save(day(D1, false, q(D1, ENGINE, "옛 검색어", 6)));
+
+        int saved = service.saveQueries(day(D1, false, q(D1, ENGINE, "새 검색어", 10)));
+
+        assertEquals(1, saved);
+        assertEquals(1, referrerRepository.countByStatDate(D1)); // 유입경로 행은 그대로
+        List<SearchQueryDaily> rows = queryRepository.findByStatDateBetween(D1, D1);
+        assertEquals(1, rows.size());
+        assertEquals("새 검색어", rows.get(0).getSearchQuery()); // 검색어는 교체됨
+    }
+
+    @Test
+    void 검색어만_저장해도_다른_날짜는_그대로다() {
+        service.save(day(D2, false, q(D2, ENGINE, "다른 날", 1)));
+
+        service.saveQueries(day(D1, false, q(D1, ENGINE, "A", 5)));
+
+        assertEquals(1, service.countQueries(D2));
+    }
+
+    @Test
+    void 검색어만_저장도_같은_입력을_두_번_넣어도_중복되지_않는다() {
+        RefererDay d = day(D1, false, q(D1, ENGINE, "A", 5));
+        service.saveQueries(d);
+        service.saveQueries(d);
+
+        assertEquals(1, service.countQueries(D1));
+    }
+
+    @Test
+    void 검색어만_저장도_오늘_데이터는_건너뛴다() {
+        assertEquals(-1, service.saveQueries(day(D1, true, q(D1, ENGINE, "A", 5))));
+        assertEquals(0, service.countQueries(D1));
+    }
+
+    @Test
+    void 검색어가_저장된_날짜만_골라낸다() {
+        service.saveQueries(day(D1, false, q(D1, ENGINE, "A", 5)));
+        service.saveQueries(day(D2, false)); // 검색어 없는 날
+
+        assertEquals(java.util.Set.of(D1), service.datesWithQueries(D1, D2));
+    }
+
     @Test
     void 검색어가_없는_날도_정상_저장된다() {
         int saved = service.save(day(D1, false));

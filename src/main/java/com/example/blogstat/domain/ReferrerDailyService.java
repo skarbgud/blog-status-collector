@@ -8,10 +8,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /** 수집 결과를 H2에 저장한다. 날짜 단위로 전부 저장되거나 전부 롤백된다. */
 @Service
@@ -51,6 +53,29 @@ public class ReferrerDailyService {
         repository.saveAll(entities);
         queryRepository.saveAll(mergeQueries(day.queries(), now));
         return entities.size();
+    }
+
+    /**
+     * 검색어만 교체 저장한다. 유입경로(referrer_daily)는 건드리지 않는다.
+     * 검색어만 따로 길게 거슬러 올라가 수집할 때 쓴다. 오늘 데이터는 저장하지 않는다.
+     *
+     * @return 저장한 검색어 수. 오늘 데이터라 건너뛰었으면 -1
+     */
+    @Transactional
+    public int saveQueries(RefererDay day) {
+        if (day.today()) {
+            return -1;
+        }
+        queryRepository.deleteByStatDate(day.date());
+        List<SearchQueryDaily> entities = mergeQueries(day.queries(), LocalDateTime.now(clock));
+        queryRepository.saveAll(entities);
+        return entities.size();
+    }
+
+    /** 기간 안에서 검색어가 이미 저장된 날짜들. */
+    @Transactional(readOnly = true)
+    public Set<LocalDate> datesWithQueries(LocalDate from, LocalDate to) {
+        return new HashSet<>(queryRepository.findDatesWithQueries(from, to));
     }
 
     /**
