@@ -14,6 +14,10 @@ public interface SearchQueryDailyRepository extends JpaRepository<SearchQueryDai
 
     List<SearchQueryDaily> findByStatDateBetween(LocalDate from, LocalDate to);
 
+    /** 검색어가 저장된 가장 최근 날짜. 검색어 변화의 기준일로 쓴다. */
+    @Query("select max(q.statDate) from SearchQueryDaily q")
+    java.util.Optional<LocalDate> findLatestStatDate();
+
     /** 기간 안에서 검색어가 한 건이라도 저장된 날짜. */
     @Query("select distinct q.statDate from SearchQueryDaily q where q.statDate between :from and :to")
     List<LocalDate> findDatesWithQueries(@Param("from") LocalDate from, @Param("to") LocalDate to);

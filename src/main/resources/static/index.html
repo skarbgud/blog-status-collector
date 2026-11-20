@@ -104,6 +104,17 @@
     .qtable th:nth-child(1), .qtable td:nth-child(1),
     .qtable th:nth-child(5), .qtable td:nth-child(5) { display: none; }
   }
+  /* 검색어 변화: 새로 뜬 | 상승 | 하락 */
+  .trend-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  @container (max-width: 720px) { .trend-grid { grid-template-columns: 1fr; } }
+  .trend-grid h3 { font-size: 13px; margin: 0 0 6px; }
+  .trend-grid ol { list-style: none; margin: 0; padding: 0; }
+  .trend-grid li { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0;
+                   border-bottom: 1px solid var(--line); }
+  .trend-grid li .q { word-break: break-word; }
+  .trend-grid li .n { white-space: nowrap; color: var(--muted); font-size: 12px; }
+  .trend-grid .empty { color: var(--muted); font-size: 12px; padding: 5px 0; }
+  .up { color: var(--c2); } .down { color: var(--danger-text); } .new { color: var(--c1); }
   .banner { border: 1px solid; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
   .banner.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-text); }
   .banner.danger { background: var(--danger-bg); border-color: var(--danger-line); color: var(--danger-text); }
@@ -116,6 +127,7 @@
 
   <nav class="nav" aria-label="페이지">
     <a href="#overview" class="active">개요</a>
+    <a href="#trends-panel">검색어 변화</a>
     <a href="#queries-panel">검색어</a>
   </nav>
 
@@ -170,6 +182,15 @@
         <thead><tr><th>유입처</th><th>방문</th><th>비율</th></tr></thead>
         <tbody id="rank"></tbody>
       </table>
+    </div>
+  </div>
+
+  <div class="panel" id="trends-panel">
+    <h2>검색어 변화<span class="sub" id="t-range"></span></h2>
+    <div class="trend-grid">
+      <div><h3 class="new">새로 뜬 검색어</h3><ol id="t-fresh"></ol></div>
+      <div><h3 class="up">지난주보다 늘어난</h3><ol id="t-rising"></ol></div>
+      <div><h3 class="down">지난주보다 줄어든</h3><ol id="t-falling"></ol></div>
     </div>
   </div>
 </main>
@@ -414,6 +435,59 @@
 
   loadSession();
   load({});
+})();
+</script>
+<script>
+// 검색어 변화 패널. 기간 선택과 무관하게 "검색어가 저장된 가장 최근 날짜" 기준 이번 주 vs 지난주다.
+// 검색어는 외부 입력이므로 textContent로만 넣는다.
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const nf = new Intl.NumberFormat('ko-KR');
+  const md = (d) => d.slice(5).replace('-', '/');
+
+  function fill(listId, items, label, empty) {
+    const ol = $(listId);
+    ol.replaceChildren();
+    if (items.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = empty;
+      ol.appendChild(li);
+      return;
+    }
+    for (const it of items) {
+      const li = document.createElement('li');
+      const q = document.createElement('span');
+      q.className = 'q';
+      q.textContent = it.query;
+      const n = document.createElement('span');
+      n.className = 'n';
+      n.textContent = label(it);
+      li.append(q, n);
+      ol.appendChild(li);
+    }
+  }
+
+  async function loadTrends() {
+    try {
+      const res = await fetch('/api/dashboard/keyword-trends?limit=10');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const t = await res.json();
+      $('t-range').textContent = '이번 주 ' + md(t.thisFrom) + '~' + md(t.thisTo)
+        + ' vs 지난주 ' + md(t.lastFrom) + '~' + md(t.lastTo)
+        + ' · "새로 뜬" = 직전 ' + t.historyDays + '일치 기록에 없던 검색어';
+      fill('t-fresh', t.fresh, (x) => nf.format(x.visits) + '회 · ' + md(x.firstSeen) + '부터',
+        '새로 뜬 검색어가 없습니다.');
+      fill('t-rising', t.rising, (x) => nf.format(x.lastWeek) + ' → ' + nf.format(x.thisWeek) + ' (+' + x.delta + ')',
+        '늘어난 검색어가 없습니다.');
+      fill('t-falling', t.falling, (x) => nf.format(x.lastWeek) + ' → ' + nf.format(x.thisWeek) + ' (' + x.delta + ')',
+        '줄어든 검색어가 없습니다.');
+    } catch (e) {
+      $('t-range').textContent = '불러오기 실패: ' + e.message;
+    }
+  }
+
+  loadTrends();
 })();
 </script>
 </body>
