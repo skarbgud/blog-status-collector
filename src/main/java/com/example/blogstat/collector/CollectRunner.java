@@ -1,5 +1,6 @@
 package com.example.blogstat.collector;
 
+import com.example.blogstat.domain.ReferrerDailyService;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -11,7 +12,7 @@ import java.util.List;
 
 /**
  * `--app.mode=collect [--from=YYYY-MM-DD] [--to=YYYY-MM-DD]`
- * 기본값은 어제 하루. 저장(5단계) 전이라 지금은 결과를 콘솔에 출력만 한다.
+ * 기본값은 어제 하루. 수집 결과를 콘솔에 출력하고 H2에 저장한다.
  */
 @Component
 @ConditionalOnProperty(name = "app.mode", havingValue = "collect")
@@ -20,9 +21,11 @@ public class CollectRunner implements ApplicationRunner {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final RefererCollector collector;
+    private final ReferrerDailyService service;
 
-    public CollectRunner(RefererCollector collector) {
+    public CollectRunner(RefererCollector collector, ReferrerDailyService service) {
         this.collector = collector;
+        this.service = service;
     }
 
     @Override
@@ -39,6 +42,10 @@ public class CollectRunner implements ApplicationRunner {
                 System.out.printf("   %-24s %5d  %6.2f%%%s%n", row.referrer(), row.visits(), row.ratio(),
                         row.searchEngine() ? "  [검색]" : "");
             }
+            int saved = service.save(day);
+            System.out.println(saved < 0
+                    ? "   → 집계 중인 오늘 데이터라 저장하지 않음"
+                    : "   → H2 저장 " + saved + "행 (DB의 해당 날짜 행 수: " + service.count(day.date()) + ")");
         }
     }
 
