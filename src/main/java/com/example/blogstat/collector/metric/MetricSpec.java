@@ -75,6 +75,11 @@ public record MetricSpec(String id, String label, Kind kind, String path, String
         return new MetricSpec(id, label, Kind.VALUE, path, timeDim, blockIds, null, List.of(), "", null, false, false);
     }
 
+    /** 추가 쿼리를 붙인 사본. */
+    MetricSpec withExtra(String query) {
+        return new MetricSpec(id, label, kind, path, timeDim, blockId, keyColumn, indexKeys, query, pendingColumn, perPost, perHour);
+    }
+
     /** 이 컬럼의 합이 0인 날은 집계 전이라 저장하지 않는 지표로 바꾼 사본. */
     MetricSpec pendingWhenZero(String column) {
         return new MetricSpec(id, label, kind, path, timeDim, blockId, keyColumn, indexKeys, extraQuery, column, perPost, perHour);

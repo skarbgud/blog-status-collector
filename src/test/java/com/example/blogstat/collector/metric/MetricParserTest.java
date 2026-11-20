@@ -170,6 +170,34 @@ class MetricParserTest {
     }
 
     @Test
+    void 일간_현황과_동영상_순위는_같은_응답의_다른_블록에서_읽는다() {
+        String json = "{\"statusCode\":200,\"result\":{\"statDataList\":["
+                + "{\"dataId\":\"dashboard\",\"data\":{\"value\":{\"dailyComment\":2,\"dailyPlayCount\":\"3\",\"dailyCv\":109,"
+                + "\"dailyLike\":5,\"isToday\":false}}},"
+                + "{\"dataId\":\"rank_play_cnt\",\"data\":{\"rows\":{\"vid\":[\"A\",\"B\"],\"rank\":[1,2],\"videoTitle\":[\"영상1\",\"영상2\"]}}}]}}";
+
+        List<MetricRow> summary = parser.parse(json, MetricSpecs.DAILY_SUMMARY, DAY, TODAY, NOW);
+        List<MetricRow> videos = parser.parse(json, MetricSpecs.VIDEO_RANK, DAY, TODAY, NOW);
+
+        assertEquals(1, summary.size());
+        assertEquals(MetricSpec.VALUE_ROW, summary.get(0).getRowKey());
+        assertEquals(DAY, summary.get(0).getStatDate());
+        assertTrue(summary.get(0).getPayload().contains("\"dailyLike\":5"));
+        assertTrue(summary.get(0).getPayload().contains("\"dailyPlayCount\":\"3\"")); // 응답이 문자열로 준다
+        assertEquals(List.of("r001", "r002"), videos.stream().map(MetricRow::getRowKey).toList());
+    }
+
+    @Test
+    void 검색어와_사이트_유입은_각각_검색어와_유입처를_행_구분으로_쓴다() {
+        String search = body("refererSearch", "{\"date\":[\"2026-11-20\"],\"cv\":[3],\"searchQuery\":[\"김햄찌 팝업\"],\"cv_p\":[100.0]}");
+        String site = body("refererSite", "{\"date\":[\"2026-11-20\"],\"cv\":[7],\"referrerSearchEngine\":[\"0\"],"
+                + "\"referrerDomain\":[\"네이버 블로그_모바일\"],\"cv_p\":[100.0]}");
+
+        assertEquals("김햄찌 팝업", parser.parse(search, MetricSpecs.REFERER_SEARCH, DAY, TODAY, NOW).get(0).getRowKey());
+        assertEquals("네이버 블로그_모바일", parser.parse(site, MetricSpecs.REFERER_SITE, DAY, TODAY, NOW).get(0).getRowKey());
+    }
+
+    @Test
     void 값_지표의_블록이_하나도_없으면_예외를_던진다() {
         String json = "{\"statusCode\":200,\"result\":{\"statDataList\":[{\"dataId\":\"other\",\"data\":{\"value\":{\"a\":1}}}]}}";
 
@@ -191,6 +219,25 @@ class MetricParserTest {
         MetricParseException e = assertThrows(MetricParseException.class,
                 () -> parser.parse(json, MetricSpecs.VIEWS, TODAY, TODAY, NOW));
         assertTrue(e.getMessage().contains("길이"));
+    }
+
+    @Test
+    void 하루_단위_지표의_블록에_rows가_없으면_항목이_없는_날로_읽는다() {
+        // 재생한 동영상이 없는 날의 rank_play_cnt처럼 블록은 오지만 rows가 빠진 응답
+        String json = "{\"statusCode\":200,\"result\":{\"statDataList\":["
+                + "{\"dataId\":\"rank_play_cnt\",\"data\":{\"columnInfo\":[\"vid\"]}}]}}";
+
+        List<MetricRow> rows = parser.parse(json, MetricSpecs.VIDEO_RANK, DAY, TODAY, NOW);
+
+        assertEquals(1, rows.size());
+        assertEquals(MetricRow.EMPTY_KEY, rows.get(0).getRowKey());
+    }
+
+    @Test
+    void 시계열은_rows가_없으면_예외를_던진다() {
+        String json = "{\"statusCode\":200,\"result\":{\"statDataList\":[{\"dataId\":\"cv\",\"data\":{}}]}}";
+
+        assertThrows(MetricParseException.class, () -> parser.parse(json, MetricSpecs.VIEWS, TODAY, TODAY, NOW));
     }
 
     @Test

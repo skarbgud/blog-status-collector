@@ -70,6 +70,12 @@ public class MetricService {
         return new HashSet<>(repository.findDatesWithMetric(metric, from, to));
     }
 
+    /** 그 지표에 잘못 남은 "조회 불가" 표시 행을 지우고 지운 수를 돌려준다. */
+    @Transactional
+    public int deleteUnavailableMarkers(String metric) {
+        return repository.deleteUnavailableMarkers(metric);
+    }
+
     /** 그 지표의 가장 최근 저장 날짜의 행들. 저장된 것이 없으면 빈 목록. */
     @Transactional(readOnly = true)
     public List<MetricRow> latestOf(String metric) {

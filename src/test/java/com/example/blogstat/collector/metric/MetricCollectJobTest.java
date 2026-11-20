@@ -68,7 +68,8 @@ class MetricCollectJobTest {
                 throw new IllegalStateException("알 수 없는 URL: " + url);
             }
             String rows = "{\"date\":[\"2026-11-19\"],\"total\":[5],\"visit\":[5],\"age\":[\"total\"],"
-                    + "\"country\":[\"KR\"],\"cv\":[1],\"pc\":[1],\"mobile\":[2],\"dimension1\":[\"주제\"]}";
+                    + "\"country\":[\"KR\"],\"cv\":[1],\"pc\":[1],\"mobile\":[2],\"dimension1\":[\"주제\"],"
+                    + "\"searchQuery\":[\"q\"],\"referrerDomain\":[\"d\"],\"vid\":[\"v\"],\"rank\":[1]}";
             StringBuilder blocks = new StringBuilder();
             for (MetricSpec spec : MetricSpecs.ALL) {
                 for (String id : spec.blockIds()) {
@@ -331,6 +332,21 @@ class MetricCollectJobTest {
     }
 
     @Test
+    void 일간_현황과_동영상_순위는_날짜마다_요청_한_번으로_함께_받는다() {
+        MetricCollectJob.Plan plan = new MetricCollectJob.Plan(List.of(MetricSpecs.DAILY_SUMMARY, MetricSpecs.VIDEO_RANK),
+                LocalDate.of(2026, 11, 19), TO, false);
+
+        MetricCollectJob.Result result = job.execute(http(), plan);
+
+        assertEquals(2, urls.size()); // 이틀, 날짜마다 한 번
+        assertTrue(urls.get(0).contains("/api/blog/daily/cv?") && urls.get(0).contains("additionalTimeDimension=WEEK")
+                && urls.get(0).contains("startDate=2026-11-20"));
+        assertEquals(java.util.Set.of("DAILY_SUMMARY", "VIDEO_RANK"), result.saved().keySet());
+        // 값 지표라도 월간이 아니면 날짜별 행이다(월 시작일이 아니라 날짜마다 저장).
+        verify(service, org.mockito.Mockito.times(2)).replace(org.mockito.ArgumentMatchers.eq("DAILY_SUMMARY"), any(), any());
+    }
+
+    @Test
     void 이미_받은_시간대는_건너뛴다() {
         when(service.keysWith("HOUR_TREND", TO)).thenReturn(Set.of("00", "01", "02"));
         MetricCollectJob.Plan plan = new MetricCollectJob.Plan(List.of(MetricSpecs.HOUR_TREND), TO, TO, false);
@@ -365,6 +381,38 @@ class MetricCollectJobTest {
         // 111의 정상 정보 저장도 같은 메서드를 쓰므로, 222용 표시 행만 골라 확인한다.
         assertTrue(rows.getAllValues().stream().flatMap(List::stream)
                 .anyMatch(r -> r.getRowKey().equals("222") && r.getPayload().equals("{\"unavailable\":true}")));
+    }
+
+    @Test
+    void 창이_여러_개여도_조회_불가_표시는_정보_지표에만_남고_시계열에는_가짜_행을_만들지_않는다() {
+        when(service.postIds(any(), any())).thenReturn(new java.util.TreeSet<>(Set.of("222")));
+        StatHttp http = (url, label) -> {
+            throw new IllegalStateException(label + " 수집 실패: HTTP 400");
+        };
+        // 30일 = 창 2개. 두 번째 창의 요청에는 시계열 지표만 들어 있어서, 표시를 고르는 방식에 따라 시계열에 새어 들어갈 수 있다.
+        MetricCollectJob.Plan plan = new MetricCollectJob.Plan(List.of(MetricSpecs.ARTICLE_CV, MetricSpecs.ARTICLE_INFO),
+                LocalDate.of(2026, 10, 22), TO, false);
+
+        MetricCollectJob.Result result = job.execute(http, plan);
+
+        assertEquals(0, result.failures());
+        verify(service, org.mockito.Mockito.times(2)).replace(org.mockito.ArgumentMatchers.eq("ARTICLE_INFO"), any(),
+                org.mockito.ArgumentMatchers.eq("222"));
+        verify(service, never()).replace(org.mockito.ArgumentMatchers.eq("ARTICLE_CV"), any(), any());
+    }
+
+    @Test
+    void 정리는_게시글별_시계열_지표에서만_표시를_지운다() {
+        when(service.deleteUnavailableMarkers("ARTICLE_CV")).thenReturn(1);
+        MetricCollectJob.Plan plan = new MetricCollectJob.Plan(
+                List.of(MetricSpecs.VIEWS, MetricSpecs.ARTICLE_CV, MetricSpecs.ARTICLE_INFO), LocalDate.of(2026, 10, 22), TO, false);
+
+        assertEquals(1, job.repairMarkers(plan));
+
+        verify(service).deleteUnavailableMarkers("ARTICLE_CV");
+        // 일반 시계열(VIEWS)과 정보 지표(ARTICLE_INFO)는 건드리지 않는다.
+        verify(service, never()).deleteUnavailableMarkers("VIEWS");
+        verify(service, never()).deleteUnavailableMarkers("ARTICLE_INFO");
     }
 
     @Test

@@ -98,6 +98,20 @@ class MetricStorageTest {
     }
 
     @Test
+    void 조회_불가_표시_행만_골라_지운다() {
+        service.replace("ARTICLE_CV", List.of(row(D1, "ARTICLE_CV", "222", "{\"unavailable\":true}")), "222");
+        service.replace("ARTICLE_CV", List.of(row(D1, "ARTICLE_CV", "111", "{\"cv\":4,\"cv_p\":1.5}")), "111");
+        service.replace("ARTICLE_INFO", List.of(row(D1, "ARTICLE_INFO", "222", "{\"unavailable\":true}")), "222");
+
+        assertEquals(1, service.deleteUnavailableMarkers("ARTICLE_CV"));
+
+        // 정상 행과, 정보 지표의 표시는 그대로다.
+        assertEquals(Set.of("111"), service.keysWith("ARTICLE_CV", D1));
+        assertEquals(Set.of("222"), service.keysWith("ARTICLE_INFO", D1));
+        assertEquals(0, service.deleteUnavailableMarkers("ARTICLE_CV")); // 두 번째는 할 일이 없다
+    }
+
+    @Test
     void 순위에_나온_게시글_번호를_모은다() {
         service.replace("RANK_POST", List.of(
                 row(D1, "RANK_POST", "r001", "{\"title\":\"a\",\"uri\":\"http://blog.naver.com/me/224476308011\"}"),

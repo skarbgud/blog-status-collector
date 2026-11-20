@@ -57,8 +57,10 @@ public class MetricCollectJob {
      * @param startDate 요청의 startDate
      * @param requested 하루·월 단위 행에 붙일 날짜
      * @param postId    게시글별 요청은 게시글 번호, 시간대별 요청은 두 자리 시간, 아니면 null (행 구분으로도 쓴다)
+     * @param marker    게시글을 조회할 수 없을 때 "조회 불가" 표시를 남길 지표(정보 지표). 게시글별 요청이 아니면 null.
+     *                  요청에 시계열 지표만 들어 있는 창에서도 표시는 정보 지표에 남기려고 따로 둔다.
      */
-    private record Unit(LocalDate startDate, LocalDate requested, String postId, List<MetricSpec> specs) {
+    private record Unit(LocalDate startDate, LocalDate requested, String postId, List<MetricSpec> specs, MetricSpec marker) {
     }
 
     private final NaverStatClient client;
@@ -86,6 +88,27 @@ public class MetricCollectJob {
      */
     public int estimateRequests(Plan plan) {
         return plainUnits(plan).size() + hourUnits(plan).size() + postUnits(plan).size();
+    }
+
+    /**
+     * 시계열 지표(게시글별 조회수 등)에 잘못 남은 "조회 불가" 표시를 지운다. 그런 행은 값이 없어 그 글이 조회수 0인 글로 보이게 한다.
+     * 표시는 정보 지표에만 있어야 하므로(이전 버전이 시계열에도 남겼다) 수집 시작 때마다 점검한다. 이미 깨끗하면 아무것도 지우지 않는다.
+     *
+     * @return 지운 행 수
+     */
+    public int repairMarkers(Plan plan) {
+        int removed = 0;
+        for (MetricSpec spec : plan.specs()) {
+            if (spec.isSeries() && spec.perPost()) {
+                removed += service.deleteUnavailableMarkers(spec.id());
+            }
+        }
+        return removed;
+    }
+
+    /** 수집 없이 저장된 내용만 바뀌었을 때(정리 등) 대시보드가 볼 스냅샷을 다시 내보낸다. */
+    public void publish() {
+        publishSnapshot();
     }
 
     public int maxRequests() {
@@ -187,15 +210,15 @@ public class MetricCollectJob {
             }
             if (spec.isSeries()) {
                 seriesGroups.computeIfAbsent(spec.requestKey(), k -> new ArrayList<>()).add(spec);
-            } else if (spec.isValue()) {
+            } else if (spec.isValue() && "MONTH".equals(spec.timeDim())) {
                 LocalDate month = lastMonthStart(plan.to());
                 if (needs(spec, month, month, plan)) {
-                    values.add(new Unit(month, month, null, List.of(spec)));
+                    values.add(new Unit(month, month, null, List.of(spec), null));
                 }
             } else if ("WEEK".equals(spec.timeDim())) {
                 for (LocalDate week : weekStarts(plan)) {
                     if (needs(spec, week, week, plan)) {
-                        weekly.add(new Unit(week, week, null, List.of(spec)));
+                        weekly.add(new Unit(week, week, null, List.of(spec), null));
                     }
                 }
             } else {
@@ -210,11 +233,11 @@ public class MetricCollectJob {
         }
         for (List<MetricSpec> group : seriesGroups.values()) {
             for (LocalDate start : seriesStarts(group.get(0), plan)) {
-                series.add(new Unit(start, start, null, group));
+                series.add(new Unit(start, start, null, group, null));
             }
         }
         List<Unit> days = new ArrayList<>();
-        byDate.forEach((date, groups) -> groups.values().forEach(g -> days.add(new Unit(date, date, null, g))));
+        byDate.forEach((date, groups) -> groups.values().forEach(g -> days.add(new Unit(date, date, null, g, null))));
 
         List<Unit> all = new ArrayList<>(series);
         all.addAll(days);
@@ -238,7 +261,7 @@ public class MetricCollectJob {
                 continue;
             }
             for (LocalDate start : seriesStarts(series, plan)) {
-                units.add(new Unit(start, plan.to(), hour, specs));
+                units.add(new Unit(start, plan.to(), hour, specs, null));
             }
         }
         return units;
@@ -249,7 +272,8 @@ public class MetricCollectJob {
      * 표시는 수집한 날짜(to)로 저장되므로 그 날에는 다시 부르지 않고, 다음 날 한 번 다시 확인한다(일시적 오류면 되살아난다).
      */
     private void markUnavailable(Unit unit, LocalDate today) {
-        MetricSpec spec = unit.specs().stream().filter(MetricSpec::isValue).findFirst().orElse(unit.specs().get(0));
+        // 표시는 항상 정보 지표에 남긴다. 시계열 지표에 남기면 값이 없는 가짜 행이 되어 그 글이 조회수 0인 글로 보인다.
+        MetricSpec spec = unit.marker();
         service.replace(spec.id(), List.of(new MetricRow(unit.requested(), spec.id(), unit.postId(),
                 "{\"unavailable\":true}", LocalDateTime.now(clock))), unit.postId());
         System.out.println("[건너뜀] 글 " + unit.postId() + " 조회 불가(HTTP 400, 삭제·비공개로 추정). 내일 다시 확인합니다.");
@@ -262,6 +286,7 @@ public class MetricCollectJob {
             return List.of();
         }
         MetricSpec series = specs.stream().filter(MetricSpec::isSeries).findFirst().orElse(specs.get(0));
+        MetricSpec marker = specs.stream().filter(MetricSpec::isValue).findFirst().orElse(specs.get(0));
         // 게시글마다 요청 한 번에 시계열과 정보를 함께 읽으므로, 첫 창에만 정보 지표를 붙인다.
         // 시계열이든 정보든(조회 불가 표시 포함) 그 날짜에 하나라도 저장돼 있으면 이미 받은 게시글이다.
         Set<String> have = new java.util.HashSet<>();
@@ -277,7 +302,7 @@ public class MetricCollectJob {
             for (LocalDate start : seriesStarts(series, plan)) {
                 List<MetricSpec> forWindow = firstWindow ? specs
                         : specs.stream().filter(MetricSpec::isSeries).toList();
-                units.add(new Unit(start, plan.to(), post, forWindow));
+                units.add(new Unit(start, plan.to(), post, forWindow, marker));
                 firstWindow = false;
             }
         }

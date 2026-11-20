@@ -48,11 +48,18 @@ public class MetricCollectRunner implements ApplicationRunner {
         }
         MetricCollectJob.Plan plan = new MetricCollectJob.Plan(specs(args), from, to, args.containsOption("force"));
 
+        int repaired = job.repairMarkers(plan);
+        if (repaired > 0) {
+            System.out.println("[정리] 시계열 지표에 잘못 남은 '조회 불가' 표시 " + repaired + "행을 지웠습니다.");
+        }
         int estimate = job.estimateRequests(plan);
         System.out.println("[지표 수집] " + from + " ~ " + to + ", 지표 " + plan.specs().size() + "종"
                 + (plan.force() ? ", --force: 이미 있는 날짜도 다시 받음" : ""));
         if (estimate == 0) {
             System.out.println("  받을 것이 없습니다(모두 이미 저장됨). 다시 받으려면 --force를 주세요.");
+            if (repaired > 0) {
+                job.publish(); // 정리한 결과를 대시보드가 보도록 스냅샷을 다시 내보낸다.
+            }
             return;
         }
         System.out.println("  예상 요청 " + estimate + "회 (요청 사이 " + avgDelayMs / 1000.0 + "초 안팎), 예상 소요 약 "

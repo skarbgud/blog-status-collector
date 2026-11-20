@@ -158,6 +158,11 @@ public class MetricParser {
         }
         JsonNode rows = block.path("data").path("rows");
         if (!rows.isObject()) {
+            // 하루 단위 지표는 그 날 항목이 없으면 블록은 오되 rows가 빠진다(예: 재생한 동영상이 없는 날 rank_play_cnt).
+            // 블록 자체가 없는 것과 달리 정상 응답이라 빈 날로 읽는다. 시계열은 구조 변경일 수 있어 엄격하게 둔다.
+            if (!spec.isSeries()) {
+                return mapper.createObjectNode();
+            }
             throw new MetricParseException(spec.id() + " 블록 " + spec.blockId() + "에 rows가 없음");
         }
         return rows;

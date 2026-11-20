@@ -199,7 +199,7 @@
   <div id="msg"></div>
 
   <div class="cards">
-    <div class="card"><div class="label">총 방문</div><div class="value" id="c-total">-</div></div>
+    <div class="card" title="네이버 유입분석이 출처를 확인한 방문의 합계입니다. 조회수(아래 블로그 지표)의 71~91%로, 출처를 알 수 없는 조회는 빠집니다."><div class="label">유입경로 합계</div><div class="value" id="c-total">-</div></div>
     <div class="card"><div class="label">검색 유입</div><div class="value" id="c-search">-</div></div>
     <div class="card"><div class="label">검색 비율</div><div class="value" id="c-ratio">-</div></div>
     <div class="card"><div class="label">수집된 날짜</div><div class="value" id="c-days">-</div></div>
@@ -362,6 +362,23 @@
         <div class="two-lists">
           <div><h3>공감</h3><table class="ptable"><tbody id="m-like"></tbody></table></div>
           <div><h3>댓글</h3><table class="ptable"><tbody id="m-comment"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>일간 공감·댓글·재생수<span class="sub" id="m-daily-sub"></span></h2>
+        <div class="chart-box short"><canvas id="m-daily"></canvas></div>
+        <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
+      </div>
+      <div class="panel">
+        <h2>동영상 재생 순위<span class="sub">순위에 오른 동영상</span></h2>
+        <div class="tbl-scroll" style="max-height:230px">
+          <table class="ptable">
+            <thead><tr><th>동영상</th><th>순위권 일수</th><th>최고 순위</th></tr></thead>
+            <tbody id="m-video"></tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -1048,22 +1065,24 @@
 
     const byPost = new Map(); // 게시글 번호 → 날짜 → 조회수
     for (const it of items) {
-      if (it.metric !== 'ARTICLE_CV' || !inRange.has(it.date)) continue;
+      if (it.metric !== 'ARTICLE_CV' || !inRange.has(it.date) || it.values.unavailable) continue;
       if (!byPost.has(it.key)) byPost.set(it.key, new Map());
       byPost.get(it.key).set(it.date, it.values.cv || 0);
     }
     const ranked = [...byPost.entries()].map(([id, m]) => ({ id, total: sum([...m.values()]), days: m }))
       .sort((a, b) => b.total - a.total).slice(0, 60);
 
+    // 조회할 수 없는 글(HTTP 400, 순위 행의 제목·작성일도 빈 글)은 시계열이 없어도 목록에 남겨 이유를 보여 준다.
+    const gone = [...info.entries()].filter(([id, v]) => v.unavailable && !byPost.has(id)).map(([id]) => id);
     const select = $('m-post-select');
     select.replaceChildren();
-    if (ranked.length === 0) {
+    if (ranked.length === 0 && gone.length === 0) {
       $('m-post-sub').textContent = '';
       $('m-post-info').textContent = '';
       draw('m-post', false, null);
       return;
     }
-    if (!ranked.some((r) => r.id === selectedPost)) selectedPost = ranked[0].id;
+    if (!ranked.some((r) => r.id === selectedPost) && !gone.includes(selectedPost)) selectedPost = (ranked[0] || { id: gone[0] }).id;
     for (const r of ranked) {
       const o = document.createElement('option');
       const title = (info.get(r.id) && info.get(r.id).title) || rankTitle.get(r.id) || r.id;
@@ -1072,14 +1091,21 @@
       if (r.id === selectedPost) o.selected = true;
       select.appendChild(o);
     }
+    for (const id of gone) {
+      const o = document.createElement('option');
+      o.value = id;
+      o.textContent = '글 ' + id + ' (삭제된 글로 보임)';
+      if (id === selectedPost) o.selected = true;
+      select.appendChild(o);
+    }
     const cur = ranked.find((r) => r.id === selectedPost);
-    $('m-post-sub').textContent = '게시글 ' + byPost.size + '개 · 이 글 기간 합계 ' + nf.format(cur.total) + '회';
+    $('m-post-sub').textContent = '게시글 ' + byPost.size + '개' + (cur ? ' · 이 글 기간 합계 ' + nf.format(cur.total) + '회' : '');
 
     const meta = $('m-post-info');
     meta.replaceChildren();
     const i = info.get(selectedPost);
     if (i && i.unavailable) {
-      meta.textContent = '이 글은 지금 조회할 수 없습니다(삭제되었거나 비공개로 바뀐 것으로 보입니다). 순위에 나온 기록만 있습니다.';
+      meta.textContent = '이 글은 조회할 수 없습니다(HTTP 400). 순위 기록에도 제목·작성일이 비어 있어 삭제된 글로 보입니다.';
     } else if (i) {
       const parts = ['누적 조회수 ' + nf.format(i.cvTotal || 0), '공감 ' + nf.format(i.likeTotal || 0),
         '댓글 ' + nf.format(i.commentTotal || 0)];
@@ -1092,10 +1118,41 @@
         meta.appendChild(a);
       }
     }
+    if (!cur) { draw('m-post', false, null); return; }
     draw('m-post', true, { type: 'bar', data: { labels: dates.map((d) => d.slice(5)), datasets: [
       { label: '조회수', data: dates.map((d) => (cur.days.has(d) ? cur.days.get(d) : null)),
         backgroundColor: PALETTE[0], borderWidth: 0 },
     ] }, options: baseOptions({ plugins: { legend: { display: false } } }) });
+  }
+
+  /** 일간 현황: 그 날의 공감수·댓글수·재생수 합계(dashboard 블록). 값이 문자열로 올 수 있어 숫자로 바꾼다. */
+  function renderDaily(items, dates) {
+    const by = new Map();
+    for (const it of items) if (it.metric === 'DAILY_SUMMARY') by.set(it.date, it.values);
+    const num = (d, k) => (by.has(d) && by.get(d)[k] != null ? Number(by.get(d)[k]) : null);
+    const like = dates.map((d) => num(d, 'dailyLike')), cmt = dates.map((d) => num(d, 'dailyComment')),
+      play = dates.map((d) => num(d, 'dailyPlayCount'));
+    $('m-daily-sub').textContent = by.size ? '공감 ' + nf.format(sum(like)) + ' · 댓글 ' + nf.format(sum(cmt)) + ' · 재생 ' + nf.format(sum(play)) : '';
+    draw('m-daily', by.size > 0, { type: 'bar', data: { labels: dates.map((d) => d.slice(5)), datasets: [
+      { label: '공감', data: like, backgroundColor: PALETTE[4], borderWidth: 0 },
+      { label: '댓글', data: cmt, backgroundColor: PALETTE[1], borderWidth: 0 },
+      { label: '재생', data: play, backgroundColor: PALETTE[0], borderWidth: 0 },
+    ] }, options: baseOptions() });
+  }
+
+  function renderVideo(items) {
+    const m = new Map();
+    for (const it of items) {
+      if (it.metric !== 'VIDEO_RANK') continue;
+      const k = it.values.vid || it.values.videoTitle;
+      const e = m.get(k) || { title: it.values.videoTitle, uri: it.values.uri, days: new Set(), best: 1e9 };
+      e.days.add(it.date);
+      e.best = Math.min(e.best, it.values.rank || 1e9);
+      m.set(k, e);
+    }
+    const list = [...m.values()].sort((a, b) => b.days.size - a.days.size || a.best - b.best);
+    fill('m-video', list.map((v, i) => [titleCell(v.title, v.uri, i + 1), td(v.days.size + '일'),
+      td(v.best < 1e9 ? v.best + '위' : '-')]), '이 기간에 재생 순위에 오른 동영상이 없습니다.', 3);
   }
 
   /** 서비스 평균·상위 그룹 평균과의 월간 비교. 내 값은 조회 기간 기준이다. */
@@ -1141,6 +1198,8 @@
     renderDistributions(view.items);
     renderRanks(view.items);
     renderHourTrend(view);
+    renderDaily(view.items, dates);
+    renderVideo(view.items);
     renderPostTrend(view);
     renderUpper(view);
     renderWeekly(view.items);

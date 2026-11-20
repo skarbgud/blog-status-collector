@@ -53,6 +53,11 @@ public interface MetricRowRepository extends JpaRepository<MetricRow, Long> {
         LocalDate getLastDate();
     }
 
+    /** "조회 불가" 표시 행(값이 없는 행)을 지운다. 시계열 지표에는 있을 수 없는 행이라 잘못 들어간 것을 정리할 때 쓴다. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("delete from MetricRow m where m.metric = :metric and m.payload = '{\"unavailable\":true}'")
+    int deleteUnavailableMarkers(@Param("metric") String metric);
+
     /** 게시글별 지표처럼 같은 날짜에 여러 행 구분이 섞여 있을 때, 한 행 구분만 지운다. */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("delete from MetricRow m where m.metric = :metric and m.rowKey = :rowKey and m.statDate in :dates")

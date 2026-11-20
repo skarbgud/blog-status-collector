@@ -71,6 +71,29 @@ public final class MetricSpecs {
     public static final MetricSpec RANK_COMMENT = MetricSpec.day(
             "RANK_COMMENT", "게시글 댓글수 순위", "/api/blog/rank/commentPc", "rankComment", null, List.of(), "");
 
+    // ---- 일간 현황(daily/cv 응답 안의 블록들): 요청 하나로 함께 받는다 ----
+
+    /**
+     * 그 날의 공감수·댓글수·재생수·이웃 증감 합계(응답의 dashboard 블록). 순위 지표(RANK_LIKE 등)는 상위 글만 있어서
+     * 일 합계는 여기서만 알 수 있다. 요청은 화면처럼 additionalTimeDimension=WEEK를 붙인다.
+     */
+    public static final MetricSpec DAILY_SUMMARY = MetricSpec.value(
+            "DAILY_SUMMARY", "일간 현황(공감·댓글·재생수)", "/api/blog/daily/cv", "DATE", "dashboard").withExtra("&additionalTimeDimension=WEEK");
+    /** 동영상·클립 재생 순위(응답의 rank_play_cnt 블록). 컬럼: vid, rank, videoTitle, createDate, uri. */
+    public static final MetricSpec VIDEO_RANK = MetricSpec.day(
+            "VIDEO_RANK", "동영상 재생 순위", "/api/blog/daily/cv", "rank_play_cnt", null, List.of(),
+            "&additionalTimeDimension=WEEK");
+
+    // ---- 유입 탭(user/referer/*): daily/referer 결과와 같은지는 수집 후 대조했다 ----
+
+    /** 모든 검색 엔진을 합친 검색어(검색어 탭). 행 구분은 검색어. search_query_daily를 검색어별로 합친 값과 비교한다. */
+    public static final MetricSpec REFERER_SEARCH = MetricSpec.day(
+            "REFERER_SEARCH", "검색어(전체 엔진 합계)", "/api/blog/user/referer/search", "refererSearch", "searchQuery",
+            List.of(), "");
+    /** 사이트 유입(검색 엔진이 아닌 유입처). 행 구분은 유입처. referrer_daily의 검색 아님 행과 비교한다. */
+    public static final MetricSpec REFERER_SITE = MetricSpec.day(
+            "REFERER_SITE", "사이트 유입", "/api/blog/user/referer/site", "refererSite", "referrerDomain", List.of(), "");
+
     // ---- 주간 하루 단위: 마지막으로 끝난 주부터 주마다 한 번씩 ----
 
     /** 이웃으로 추가한 사람들의 성별·연령(주간). */
@@ -111,7 +134,8 @@ public final class MetricSpecs {
     public static final List<MetricSpec> ALL = List.of(
             VIEWS, VISITORS, VISITS, DURATION, RELATION_VISIT, RELATION_DELTA, AVG_VISIT_WEEKLY, REVISIT_WEEKLY,
             DEMO, DEMO_FOLLOW, DEMO_FRIEND, DEMO_ETC, DEVICE, HOUR, COUNTRY, RANK_POST, RANK_SUBJECT, RANK_LIKE,
-            RANK_COMMENT, REL_DEMO_ADD, UPPER_GROUP, HOUR_TREND, ARTICLE_CV, ARTICLE_INFO);
+            RANK_COMMENT, DAILY_SUMMARY, VIDEO_RANK, REFERER_SEARCH, REFERER_SITE, REL_DEMO_ADD, UPPER_GROUP, HOUR_TREND,
+            ARTICLE_CV, ARTICLE_INFO);
 
     public static Optional<MetricSpec> find(String id) {
         return ALL.stream().filter(s -> s.id().equalsIgnoreCase(id)).findFirst();
