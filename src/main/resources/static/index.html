@@ -20,13 +20,56 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 14px/1.5 -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
-  main { max-width: 1040px; margin: 0 auto; padding: 20px 16px 48px; }
-  h1 { font-size: 20px; margin: 0 0 16px; }
-  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
-  .controls input, .controls button { font: inherit; padding: 6px 10px; border: 1px solid var(--line);
-         border-radius: 6px; background: var(--card); color: var(--text); }
+  /* ---- 3단 레이아웃: 사이드바 | 본문 | 검색어 레일 ----
+     ≥1280px: 3단 / 900~1279px: 사이드바 + 본문(검색어는 본문 아래) / <900px: 상단 바 + 1단 */
+  .layout { display: grid; grid-template-columns: 220px minmax(0, 1fr) 400px; gap: 20px;
+            max-width: 1680px; margin: 0 auto; padding: 0 16px; align-items: start; }
+  .sidebar { position: sticky; top: 0; max-height: 100vh; overflow-y: auto; padding: 20px 0 20px;
+             display: flex; flex-direction: column; gap: 18px; }
+  main { min-width: 0; padding: 20px 0 48px; container-type: inline-size; }
+  .rail { position: sticky; top: 16px; margin-top: 20px; min-width: 0; }
+  .rail .panel { display: flex; flex-direction: column; height: calc(100vh - 32px); margin-bottom: 0; }
+  .rail .scroll { flex: 1; max-height: none; }
+
+  h1 { font-size: 17px; margin: 0; line-height: 1.3; }
+  .side-label { font-size: 11px; color: var(--muted); letter-spacing: .04em; margin: 0 0 6px; }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav a { display: block; padding: 6px 10px; border-radius: 6px; color: var(--text); text-decoration: none; }
+  .nav a:hover { background: var(--card); }
+  .nav a.active { background: var(--card); color: var(--c1); font-weight: 600; box-shadow: inset 2px 0 0 var(--c1); }
+  .controls { display: flex; flex-direction: column; gap: 8px; }
+  .presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .controls input, .controls button { font: inherit; padding: 6px 8px; border: 1px solid var(--line);
+         border-radius: 6px; background: var(--card); color: var(--text); width: 100%; min-width: 0; }
   .controls button { cursor: pointer; }
   .controls button.active { border-color: var(--c1); color: var(--c1); }
+  .controls .range-sep { text-align: center; color: var(--muted); font-size: 12px; line-height: 1; }
+  #apply { background: var(--c1); border-color: var(--c1); color: #fff; }
+  .status { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+  .status .row { display: flex; justify-content: space-between; gap: 8px; }
+  .status .row span:first-child { color: var(--muted); }
+  .status .ok { color: var(--c2); }
+  .status .warn { color: var(--warn-text); }
+  .status .danger { color: var(--danger-text); }
+
+  @media (max-width: 1279px) {
+    .layout { grid-template-columns: 220px minmax(0, 1fr); }
+    /* 사이드바가 두 줄(본문, 검색어)에 걸치게 해서, 사이드바 높이가 첫 줄 높이를 늘리지 않게 한다 */
+    .sidebar { grid-row: 1 / span 2; }
+    .rail { grid-column: 2; position: static; margin-top: 0; padding-bottom: 48px; }
+    .rail .panel { height: auto; }
+    .rail .scroll { max-height: 520px; }
+    main { padding-bottom: 0; }
+  }
+  @media (max-width: 899px) {
+    .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .sidebar { position: static; max-height: none; padding-bottom: 0; gap: 12px; grid-row: auto; }
+    .rail { grid-column: 1; }
+    .nav { flex-direction: row; flex-wrap: wrap; }
+    .controls { display: grid; grid-template-columns: 1fr 1fr; }
+    .controls .presets, .controls #apply { grid-column: 1 / -1; }
+    .controls .range-sep { display: none; }
+  }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
   .card .label { color: var(--muted); font-size: 12px; }
@@ -34,11 +77,13 @@
   .panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
   .panel h2 { font-size: 15px; margin: 0 0 12px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+  /* 화면 폭이 아니라 본문 폭 기준: 3단일 때 본문이 좁아지면 도넛과 순위를 세로로 쌓는다 */
+  @container (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
   .chart-box { position: relative; height: 280px; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
   th:not(:first-child), td:not(:first-child) { text-align: right; }
+  th { white-space: nowrap; }
   .badges { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 8px; vertical-align: middle; }
   .badge.more { color: var(--muted); border-color: var(--line); }
   .badge { display: inline-block; margin-left: 0; padding: 0 7px; border-radius: 999px; font-size: 11px;
@@ -54,25 +99,52 @@
   .qtable th:nth-child(5), .qtable td:nth-child(5) { text-align: left; }
   .qtable td:nth-child(2) { word-break: break-word; }
   .qtable td:nth-child(5), .qtable td:first-child { color: var(--muted); font-size: 12px; }
+  /* 레일(400px)에서는 순번·유입처 열을 숨긴다. 유입처는 행에 마우스를 올리면 툴팁으로 보인다 */
+  @media (min-width: 1280px) {
+    .qtable th:nth-child(1), .qtable td:nth-child(1),
+    .qtable th:nth-child(5), .qtable td:nth-child(5) { display: none; }
+  }
   .banner { border: 1px solid; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
   .banner.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-text); }
   .banner.danger { background: var(--danger-bg); border-color: var(--danger-line); color: var(--danger-text); }
 </style>
 </head>
 <body>
-<main>
-  <h1>블로그 유입 대시보드</h1>
+<div class="layout">
+<aside class="sidebar">
+  <h1>블로그 유입<br>대시보드</h1>
 
-  <div id="session-banner" class="banner" role="alert" hidden></div>
+  <nav class="nav" aria-label="페이지">
+    <a href="#overview" class="active">개요</a>
+    <a href="#queries-panel">검색어</a>
+  </nav>
 
-  <div class="controls">
-    <button data-days="7">7일</button>
-    <button data-days="30" class="active">30일</button>
-    <button data-days="90">90일</button>
-    <span style="color:var(--muted)">직접 선택</span>
-    <input type="date" id="from"> ~ <input type="date" id="to">
-    <button id="apply">조회</button>
+  <div>
+    <p class="side-label">기간</p>
+    <div class="controls">
+      <div class="presets">
+        <button data-days="7">7일</button>
+        <button data-days="30" class="active">30일</button>
+        <button data-days="90">90일</button>
+      </div>
+      <input type="date" id="from" aria-label="시작일">
+      <div class="range-sep">~</div>
+      <input type="date" id="to" aria-label="종료일">
+      <button id="apply">조회</button>
+    </div>
   </div>
+
+  <div>
+    <p class="side-label">상태</p>
+    <div class="status">
+      <div class="row"><span>최근 수집일</span><span id="s-latest">-</span></div>
+      <div class="row"><span>로그인 세션</span><span id="s-session">-</span></div>
+    </div>
+  </div>
+</aside>
+
+<main id="overview">
+  <div id="session-banner" class="banner" role="alert" hidden></div>
   <div id="msg"></div>
 
   <div class="cards">
@@ -100,8 +172,10 @@
       </table>
     </div>
   </div>
+</main>
 
-  <div class="panel">
+<aside class="rail">
+  <div class="panel" id="queries-panel">
     <h2>검색어 전체<span class="sub" id="q-count"></span></h2>
     <input type="search" id="q-filter" placeholder="검색어 필터 (예: 팝업)" autocomplete="off">
     <div class="scroll">
@@ -111,7 +185,8 @@
       </table>
     </div>
   </div>
-</main>
+</aside>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
@@ -258,6 +333,7 @@
     }
     rows.forEach((q, i) => {
       const tr = document.createElement('tr');
+      tr.title = '유입처: ' + q.sources.join(', '); // 레일에서 숨긴 유입처 열 대신
       const cells = [String(i + 1), q.query, nf.format(q.visits), String(q.days), q.sources.join(', ')];
       cells.forEach((text, col) => {
         const td = document.createElement('td');
@@ -281,9 +357,8 @@
       ]);
       render(summary, daily, referrers);
       renderQueries(queries);
-      $('msg').textContent = summary.collectedDays === 0
-        ? '이 기간에 수집된 데이터가 없습니다.'
-        : (summary.latestDate ? '최근 수집일: ' + summary.latestDate : '');
+      $('s-latest').textContent = summary.latestDate || '없음';
+      $('msg').textContent = summary.collectedDays === 0 ? '이 기간에 수집된 데이터가 없습니다.' : '';
     } catch (e) {
       $('msg').textContent = '조회 실패: ' + e.message;
     }
@@ -292,17 +367,24 @@
   // 로그인 쿠키 만료 경고. 문구는 서버가 만든 값이지만 innerHTML 없이 textContent로만 넣는다.
   async function loadSession() {
     const banner = $('session-banner');
+    const side = $('s-session');
     try {
       const s = await get('/api/dashboard/session', {});
+      const level = s.state === 'OK' ? 'ok' : (s.state === 'EXPIRED' || s.state === 'MISSING' ? 'danger' : 'warn');
+      side.textContent = s.daysLeft == null ? (s.state === 'OK' ? '정상' : '확인 필요')
+        : (s.daysLeft < 0 ? '만료' : 'D-' + s.daysLeft);
+      side.className = level;
+      side.title = s.message || '';
       if (s.state === 'OK') {
         banner.hidden = true;
         return;
       }
       banner.textContent = s.message;
-      banner.className = 'banner ' + (s.state === 'EXPIRED' || s.state === 'MISSING' ? 'danger' : 'warn');
+      banner.className = 'banner ' + level;
       banner.hidden = false;
     } catch (e) {
       banner.hidden = true; // 경고를 못 가져와도 대시보드 본문은 계속 보여 준다.
+      side.textContent = '-';
     }
   }
 
