@@ -1,14 +1,20 @@
-// 대시보드 "공유 링크 만들기". 지금 화면이 받은 응답(/api/dashboard/*)을 모아 링크의 # 뒤에 넣는다.
+// 대시보드 "공유 링크 만들기". 지금 화면이 받은 응답(/api/dashboard/*)을 모아 브라우저에서 암호화하고,
+// 암호문만 보기 사이트(Netlify Function + Blobs)에 맡긴 뒤 짧은 링크(#k=<번호>.<키>)를 만든다.
+// - 푸는 키는 링크의 # 뒤에만 있다. # 뒤는 서버로 전송되지 않으므로 사이트는 내용을 읽을 수 없다.
 // - dashboard-api.js 다음에 일반 스크립트로 불러온다. fetch를 한 번 더 감싸서 응답을 기록만 하고, 응답은 그대로 돌려준다.
-// - 링크를 여는 보기 페이지(Netlify, share-viewer.ts)는 데이터를 저장하지 않는다. # 뒤는 서버로 전송되지 않는다.
 // - 링크를 가진 사람은 누구나 이 화면(검색어·유입 URL 포함)을 볼 수 있다. 버튼 아래에 그렇게 알린다.
+// - 쓰기 토큰·내 공유 목록(삭제 토큰 포함)은 이 확장 페이지의 localStorage에만 둔다.
 (() => {
   const PREFIX = '/api/dashboard/';
   const VIEWER_KEY = 'share_viewer_url';
-  /** 배포된 보기 페이지(Netlify, 저장소 루트 netlify.toml). 다른 곳에 올렸으면 "보기 페이지 주소 바꾸기"로 바꾼다. */
+  const TOKEN_KEY = 'share_write_token';
+  const LIST_KEY = 'share_list';
+  /** 배포된 보기 페이지(Netlify, 저장소 루트 netlify.toml). 다른 곳에 올렸으면 설정에서 바꾼다. */
   const DEFAULT_VIEWER = 'https://blog-status-collector.netlify.app/';
-  /** 30일 링크는 보통 이보다 훨씬 길다. 메신저에 따라 긴 링크가 잘릴 수 있어 이 길이를 넘으면 알린다. */
-  const LONG_LINK = 30_000;
+  /** 공유를 보관하는 일수. 지나면 사이트가 지운다(share-sweep). */
+  const KEEP_DAYS = 30;
+
+  interface MyShare { id: string; deleteToken: string; link: string; from: string; to: string; createdAt: string; expiresAt: string }
 
   // ---- 응답 기록: 이름마다 가장 최근의 성공 응답 ----
   const recorded = new Map<string, unknown>();
@@ -32,15 +38,20 @@
     if (text !== undefined) e.textContent = text;
     return e;
   };
+  const load = (k: string): string | null => {
+    try { return localStorage.getItem(k); } catch { return null; }
+  };
+  const save = (k: string, v: string | null) => {
+    try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* 저장 못 함 */ }
+  };
 
   function viewerUrl(ask: boolean): string | null {
-    let saved: string | null = null;
-    try { saved = localStorage.getItem(VIEWER_KEY); } catch { /* 저장소 없음 */ }
+    const saved = load(VIEWER_KEY);
     if (!ask) return saved || DEFAULT_VIEWER;
     const v = prompt('공유 링크를 열 보기 페이지 주소를 입력하세요.\n비우고 확인하면 기본 주소(' + DEFAULT_VIEWER + ')로 돌아갑니다.',
       saved || DEFAULT_VIEWER);
     if (v !== null && v.trim() === '') {
-      try { localStorage.removeItem(VIEWER_KEY); } catch { /* 저장소 없음 */ }
+      save(VIEWER_KEY, null);
       return DEFAULT_VIEWER;
     }
     if (!v) return null;
@@ -48,7 +59,7 @@
       const u = new URL(v.trim());
       if (u.protocol !== 'https:' && u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') throw new Error('https');
       const clean = u.origin + u.pathname;
-      try { localStorage.setItem(VIEWER_KEY, clean); } catch { /* 저장 못 해도 이번에는 쓴다 */ }
+      save(VIEWER_KEY, clean);
       return clean;
     } catch {
       alert('주소 형식이 잘못됐습니다. https://로 시작하는 주소를 입력하세요.');
@@ -56,35 +67,113 @@
     }
   }
 
+  function writeToken(ask: boolean): string | null {
+    const saved = load(TOKEN_KEY);
+    if (saved && !ask) return saved;
+    const v = prompt('공유 쓰기 토큰을 입력하세요.\nNetlify 사이트 설정 → Environment variables의 SHARE_WRITE_TOKEN과 같은 값입니다. (처음 한 번만 묻습니다)', '');
+    if (!v || !v.trim()) return null;
+    save(TOKEN_KEY, v.trim());
+    return v.trim();
+  }
+
+  // ---- 내 공유 목록 ----
+  function myShares(): MyShare[] {
+    try {
+      const list = JSON.parse(load(LIST_KEY) ?? '[]') as MyShare[];
+      const now = Date.now();
+      return Array.isArray(list) ? list.filter((s) => Date.parse(s.expiresAt) > now) : [];
+    } catch {
+      return [];
+    }
+  }
+  const saveShares = (list: MyShare[]) => save(LIST_KEY, JSON.stringify(list.slice(0, 20)));
+
+  let listBox: HTMLDetailsElement | null = null;
+  function renderList(): void {
+    if (!listBox) return;
+    const list = myShares();
+    listBox.replaceChildren();
+    listBox.hidden = list.length === 0;
+    if (list.length === 0) return;
+    const ul = el('ul');
+    Object.assign(ul.style, { listStyle: 'none', margin: '6px 0 0', padding: '0', display: 'grid', gap: '6px' });
+    for (const s of list) {
+      const li = el('li');
+      const copy = el('a', '복사');
+      copy.href = s.link;
+      copy.addEventListener('click', (e) => {
+        e.preventDefault();
+        navigator.clipboard.writeText(s.link).then(() => { copy.textContent = '복사됨'; }, () => window.open(s.link, '_blank', 'noopener'));
+      });
+      const del = el('a', '삭제');
+      del.href = '#';
+      del.style.marginLeft = '8px';
+      del.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (!confirm(s.from + ' ~ ' + s.to + ' 공유를 지울까요? 이 링크는 더 이상 열리지 않습니다.')) return;
+        void remove(s).then(renderList);
+      });
+      li.append(el('span', s.from + ' ~ ' + s.to + ' · ' + s.expiresAt.slice(0, 10) + '까지 '), copy, del);
+      ul.append(li);
+    }
+    listBox.append(el('summary', '내 공유 ' + list.length + '개'), ul);
+  }
+
+  async function remove(s: MyShare): Promise<void> {
+    try {
+      const res = await fetch(new URL('api/share/' + s.id, viewerUrl(false) ?? DEFAULT_VIEWER), {
+        method: 'DELETE', headers: { 'X-Delete-Token': s.deleteToken },
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      saveShares(myShares().filter((x) => x.id !== s.id));
+    } catch (e) {
+      alert('지우지 못했습니다: ' + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  // ---- 화면 ----
   function mount(): void {
     const sidebar = document.querySelector('.sidebar');
     if (!sidebar) return;
     const box = el('div');
-    box.append(el('p', '공유'));
-    box.firstElementChild!.className = 'side-label';
+    const label = el('p', '공유');
+    label.className = 'side-label';
     const controls = el('div');
     controls.className = 'controls';
     const make = el('button', '공유 링크 만들기');
     make.type = 'button';
     make.id = 'share-make';
-    make.title = '지금 기간의 화면 전부(검색어·유입 URL 포함)를 링크 하나에 담습니다. 데이터는 어느 서버에도 저장되지 않습니다.';
+    make.title = '지금 기간의 화면 전부(검색어·유입 URL 포함)를 암호화해 보기 사이트에 맡기고 짧은 링크를 만듭니다. '
+      + '푸는 키는 링크에만 있어 사이트는 내용을 읽을 수 없습니다. ' + KEEP_DAYS + '일 뒤 자동으로 지워집니다.';
     const out = el('p');
     out.id = 'share-out';
     out.className = 'note';
     out.style.margin = '0';
     out.style.overflowWrap = 'anywhere';
-    const change = el('a', '보기 페이지 주소 바꾸기');
-    change.href = '#';
-    change.className = 'note';
-    change.addEventListener('click', (e) => {
+    listBox = el('details');
+    listBox.className = 'note';
+    const settings = el('p');
+    settings.className = 'note';
+    settings.style.margin = '0';
+    const viewer = el('a', '보기 페이지 주소');
+    viewer.href = '#';
+    viewer.addEventListener('click', (e) => {
       e.preventDefault();
       const u = viewerUrl(true);
       if (u) out.textContent = '보기 페이지: ' + u;
     });
-    controls.append(make, out, change);
-    box.append(controls);
+    const token = el('a', '쓰기 토큰');
+    token.href = '#';
+    token.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (writeToken(true)) out.textContent = '쓰기 토큰을 바꿨습니다.';
+    });
+    settings.append(el('span', '설정: '), viewer, el('span', ' · '), token);
+    controls.append(make, out, listBox, settings);
+    box.append(label, controls);
     sidebar.append(box);
     make.addEventListener('click', () => void create(make, out));
+    renderList();
   }
 
   async function create(button: HTMLButtonElement, out: HTMLElement): Promise<void> {
@@ -101,24 +190,44 @@
     }
     const base = viewerUrl(false);
     if (!base) return;
+    const token = writeToken(false);
+    if (!token) {
+      out.textContent = '쓰기 토큰이 있어야 공유할 수 있습니다.';
+      return;
+    }
     button.disabled = true;
-    out.textContent = '만드는 중…';
+    out.textContent = '암호화해서 올리는 중…';
     try {
       const codec = await import('./core/share-codec.js');
       const responses = codec.pickResponses(Object.fromEntries(recorded));
-      const data = await codec.encodeShare({
-        v: codec.SHARE_VERSION, createdAt: new Date().toISOString(), from, to, responses,
+      const createdAt = new Date().toISOString();
+      const { body, key } = await codec.sealShare({ v: codec.SHARE_VERSION, createdAt, from, to, responses });
+      const res = await fetch(new URL('api/share?days=' + KEEP_DAYS, base), {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/octet-stream' },
+        body: body as Uint8Array<ArrayBuffer>,
       });
-      const link = codec.shareLink(base, data);
+      if (res.status === 401) {
+        save(TOKEN_KEY, null);
+        throw new Error('쓰기 토큰이 맞지 않습니다. 다시 누르면 토큰을 새로 묻습니다.');
+      }
+      if (!res.ok) {
+        let detail = '';
+        try { detail = ((await res.json()) as { message?: string }).message ?? ''; } catch { /* 본문 없음 */ }
+        throw new Error(detail || 'HTTP ' + res.status);
+      }
+      const r = (await res.json()) as { id: string; deleteToken: string; expiresAt: string };
+      const link = codec.shortLink(base, r.id, key);
+      saveShares([{ id: r.id, deleteToken: r.deleteToken, link, from, to, createdAt, expiresAt: r.expiresAt }, ...myShares()]);
+      renderList();
       let copied = false;
       try {
         await navigator.clipboard.writeText(link);
         copied = true;
       } catch { /* 복사 권한 없음: 아래 링크를 직접 복사 */ }
       out.replaceChildren();
-      const msg = (copied ? '링크를 복사했습니다. ' : '') + from + ' ~ ' + to + ' · ' + link.length.toLocaleString('ko-KR') + '자. '
-        + '링크를 가진 사람은 누구나 이 화면(검색어·유입 URL 포함)을 볼 수 있습니다.'
-        + (link.length > LONG_LINK ? ' 링크가 길어 메신저에 따라 잘릴 수 있습니다. 잘리면 기간을 줄여 다시 만드세요.' : '');
+      const msg = (copied ? '링크를 복사했습니다. ' : '') + from + ' ~ ' + to + ' · ' + r.expiresAt.slice(0, 10) + '까지 열립니다. '
+        + '링크를 가진 사람은 누구나 이 화면(검색어·유입 URL 포함)을 볼 수 있습니다.';
       const open = el('a', '새 탭에서 열어 보기');
       open.href = link;
       open.target = '_blank';

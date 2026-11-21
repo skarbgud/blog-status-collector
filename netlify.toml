@@ -1,9 +1,14 @@
-# 공유 링크 보기 페이지(Netlify). 확장 대시보드 화면만 정적 사이트로 올린다. 데이터는 올리지 않는다.
-# 데이터는 공유 링크의 # 뒤에만 있고, # 뒤는 브라우저가 서버로 보내지 않는다.
+# 공유 링크 보기 페이지(Netlify). 확장 대시보드 화면(정적)과 짧은 링크 API(함수 + Netlify Blobs).
+# Blobs에는 브라우저에서 암호화한 암호문만 들어간다. 푸는 키는 링크의 # 뒤에만 있고 서버로 오지 않는다.
+# 필요한 환경변수: SHARE_WRITE_TOKEN(확장이 공유를 올릴 때 쓰는 비밀값. 없으면 저장을 받지 않는다).
 [build]
   base = "extension"
   command = "npm ci && npm run build:viewer"
   publish = "viewer-dist"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
 
 [build.environment]
   NODE_VERSION = "20"
@@ -11,8 +16,8 @@
 [[headers]]
   for = "/*"
   [headers.values]
-    # 보기 페이지는 어디에도 요청을 보내지 않는다(connect-src 'none'). Highcharts가 인라인 style을 쓴다.
-    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"
+    # 보기 페이지는 이 사이트의 /api/share(암호문 받기)에만 요청한다(connect-src 'self'). Highcharts가 인라인 style을 쓴다.
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"
     Referrer-Policy = "no-referrer"
     X-Robots-Tag = "noindex, nofollow"
     X-Content-Type-Options = "nosniff"

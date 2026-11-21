@@ -29,16 +29,22 @@
 - 옵션(`options.html`): 백업 받기(.sqlite), 백업에서 복원, Java 데이터 가져오기, 하루 요청 상한, 최근 7일 다시 받기
 
 ## 공유 링크
-대시보드 사이드바 "공유 링크 만들기": 지금 기간의 화면 전부(검색어·유입 URL 포함)를 링크 하나에 담아 클립보드에 복사한다. 받은 사람은 확장·로그인 없이 브라우저로 읽기 전용으로 본다.
-- **데이터는 어디에도 저장되지 않는다.** 데이터는 링크의 `#s=` 뒤(fragment)에 있고, 브라우저는 #뒤를 서버로 보내지 않는다. 보기 페이지(Netlify)는 화면 코드만 있는 정적 사이트다. 대신 **링크를 가진 사람은 누구나** 그 화면을 볼 수 있다.
+대시보드 사이드바 "공유 링크 만들기": 지금 기간의 화면 전부(검색어·유입 URL 포함)를 **짧은 링크**(약 85자)로 만들어 클립보드에 복사한다. 받은 사람은 확장·로그인 없이 브라우저(휴대폰 포함)로 읽기 전용으로 본다.
+- **방식(암호화 맡기기)**: 확장이 데이터를 브라우저 안에서 AES-256-GCM으로 암호화하고, 암호문만 보기 사이트(Netlify Function + Netlify Blobs `blog-shares`)에 올린다. 링크는 `https://blog-status-collector.netlify.app/#k=<번호16자>.<키43자>`이고, **푸는 키는 링크의 # 뒤에만 있다.** # 뒤는 브라우저가 서버로 보내지 않으므로 사이트는 내용을 읽을 수 없다. 대신 **링크를 가진 사람은 누구나** 그 화면을 볼 수 있다.
+  - 처음에는 데이터를 링크에 통째로 넣었으나(`#s=`, 7일도 수만 자) 카카오톡이 긴 링크를 잘라 휴대폰에서 열리지 않아(2026-11-21) 바꿨다. `#s=` 링크도 계속 열린다.
+  - 이 기능만 "데이터를 브라우저 밖에 두지 않는다" 원칙의 예외다(사용자 결정, 2026-11-21). 저장되는 것은 읽을 수 없는 암호문과 만료 시각·삭제 토큰 해시뿐이다.
+- 보관: 30일 뒤 만료. 열 때 만료분을 지우고, 예약 함수(`share-sweep`, 매일)가 아무도 열지 않은 것도 지운다. 확장 사이드바 "내 공유"에서 링크 다시 복사·삭제(삭제 토큰은 이 확장 localStorage에만 있다).
+- **쓰기 토큰**: 사이트 환경변수 `SHARE_WRITE_TOKEN`이 있어야 저장을 받는다(없으면 503). 남이 이 사이트를 저장소로 쓰지 못하게 하려는 것이다. 확장은 처음 공유할 때 같은 값을 한 번 묻고 localStorage에 둔다(사이드바 "설정: 쓰기 토큰"으로 바꿈). 틀리면 401이고 다음에 다시 묻는다.
+- API(`src/core/share-api.ts`, 저장소를 주입받는 순수 처리기라 Node 테스트로 확인. 함수 입구는 `netlify/functions/share.mts`, 저장소 연결은 `netlify/lib/blob-store.mts`)
+  - `POST /api/share?days=1~90`(Authorization: Bearer 쓰기 토큰, 본문 2MB 이하) → `{ id, deleteToken, expiresAt }`
+  - `GET /api/share/<id>` → 암호문(`Cache-Control: no-store`), 없거나 만료면 404
+  - `DELETE /api/share/<id>`(X-Delete-Token) → 204
 - 만드는 쪽(`src/dashboard-share.ts`): 화면 스크립트가 받은 `/api/dashboard/*` 응답을 기록해 두었다가(fetch를 한 번 더 감쌈) 지금 기간 응답만 모은다. 수집 상태(`session`)는 뺀다. 화면이 아직 다 불러오지 않았거나 이전 기간 응답이 섞여 있으면 만들지 않는다.
-- 데이터 형식(`src/core/share-codec.ts`): JSON → deflate-raw(브라우저 내장 `CompressionStream`) → base64url. 블로그 지표 응답은 열 형식으로 바꾸고, 화면이 쓰지 않는 지표(`REFERER_SEARCH`, `REFERER_SITE`, `RELATION_VISIT`)는 빼고, 소수는 셋째 자리까지 반올림한다. 풀 때 화면이 받는 모양으로 되돌린다. 풀었을 때 20MB를 넘으면 거부한다.
-- 링크 길이: 위 줄이기로 실데이터 기준 30일 링크가 약 절반이 되고, 7일 링크는 30일의 약 3분의 1이다(2026-11-21 측정). 대부분이 게시글별 일 조회수·순위다. 글이 많은 블로그는 30일 링크가 수만~수십만 자가 될 수 있다. 크롬은 열 수 있지만 메신저에 따라 긴 링크가 잘릴 수 있어 3만 자를 넘으면 화면에 알린다. 길이 재기: `node tools/share-size.mjs <export.json>`(`npm test` 뒤).
-- 보기 페이지(`src/share-viewer.ts`): `dashboard.html`에서 `dashboard-api.js`를 이것으로 바꾼 페이지다. 링크를 열면 데이터를 그 탭의 sessionStorage로 옮기고 주소를 `#/overview`로 바꾼다(화면 전환이 #를 쓰기 때문, 새로고침해도 유지). 기간 바꾸기와 확장 전용 표시(수집 상태, 백업 링크)는 숨긴다.
-- 빌드·배포: `npm run build:viewer` → `viewer-dist/`(확장 빌드에서 화면 파일만 꺼내고, 화면이 import하는 `core/` 모듈만 따라가며 넣는다. 수집기·DB 코드는 올리지 않는다). Netlify는 저장소 루트의 `netlify.toml`로 빌드한다. 헤더: CSP `connect-src 'none'`(보기 페이지는 어디에도 요청하지 않는다), `Referrer-Policy: no-referrer`, `noindex`.
-- 로컬 확인: `npm run build:viewer && node tools/serve-viewer.mjs` → http://localhost:8787/ (netlify.toml과 같은 헤더). 확장에서 "보기 페이지 주소 바꾸기"에 이 주소를 넣으면 공유 링크를 로컬에서 열어 볼 수 있다.
-- 보기 페이지 주소 기본값은 `https://blog-status-collector.netlify.app/`(`dashboard-share.ts`의 `DEFAULT_VIEWER`)이다. "보기 페이지 주소 바꾸기"로 바꾸면 확장 페이지 localStorage에 두고, 비우면 기본값으로 돌아간다.
-- 링크 없이 보기 페이지를 열거나 링크가 잘렸으면 대시보드 대신 안내 화면만 보여 준다.
+- 데이터 형식(`src/core/share-codec.ts`): JSON → deflate-raw(브라우저 내장 `CompressionStream`) → AES-GCM(`[버전 1][IV 12][암호문+태그]`). 블로그 지표 응답은 열 형식으로 바꾸고, 화면이 쓰지 않는 지표(`REFERER_SEARCH`, `REFERER_SITE`, `RELATION_VISIT`)는 빼고, 소수는 셋째 자리까지 반올림한다(실데이터 30일 기준 약 절반). 풀 때 화면이 받는 모양으로 되돌린다. 풀었을 때 20MB를 넘으면 거부한다. 크기 재기: `node tools/share-size.mjs <export.json>`(`npm test` 뒤).
+- 보기 페이지(`src/share-viewer.ts`): `dashboard.html`에서 `dashboard-api.js`를 이것으로 바꾼 페이지다. 링크를 열면 # 부분을 그 탭의 sessionStorage로 옮기고 주소를 `#/overview`로 바꾼다(화면 전환이 #를 쓰기 때문, 새로고침해도 유지). 기간 바꾸기와 확장 전용 표시(수집 상태, 백업 링크)는 숨긴다. 링크 없이 열거나 잘렸거나 만료됐으면 대시보드 대신 안내 화면만 보여 준다.
+- 빌드·배포: `npm run build:viewer` → `viewer-dist/`(확장 빌드에서 화면 파일만 꺼내고, 화면이 import하는 `core/` 모듈만 따라가며 넣는다. 수집기·DB 코드는 올리지 않는다). Netlify는 저장소 루트의 `netlify.toml`로 빌드하고 함수는 `extension/netlify/functions`(esbuild)다. 헤더: CSP `connect-src 'self'`(보기 페이지는 이 사이트의 `/api/share`에만 요청), `Referrer-Policy: no-referrer`, `noindex`.
+- 로컬 확인: `npm test && npm run build:viewer && node tools/serve-viewer.mjs` → http://localhost:8787/ (netlify.toml과 같은 헤더, `/api/share`는 같은 처리기를 메모리 저장소로, 쓰기 토큰 기본 `local-test`). 확장 사이드바 "설정"에서 보기 페이지 주소를 이 주소로, 쓰기 토큰을 같은 값으로 넣으면 끝까지 확인할 수 있다.
+- 보기 페이지 주소 기본값은 `https://blog-status-collector.netlify.app/`(`dashboard-share.ts`의 `DEFAULT_VIEWER`)이다. 설정에서 바꾸면 확장 페이지 localStorage에 두고, 비우면 기본값으로 돌아간다.
 
 ## 데이터
 - 저장 위치: 확장의 OPFS(브라우저 내부) SQLite. **확장을 삭제하면 지워진다** → 가끔 옵션에서 백업을 받는다.

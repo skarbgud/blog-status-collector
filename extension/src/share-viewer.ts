@@ -1,33 +1,53 @@
 // 공유 링크 보기 페이지(Netlify)의 데이터 계층. 확장의 dashboard-api.js 자리에 들어가서
-// 화면 스크립트의 fetch('/api/dashboard/<이름>')에 링크 # 뒤의 데이터로 답한다. 네트워크 요청은 없다.
-// - 링크(#s=<데이터>)를 열면 데이터를 이 탭의 sessionStorage로 옮기고 주소를 #/overview로 바꾼다.
+// 화면 스크립트의 fetch('/api/dashboard/<이름>')에 공유 데이터로 답한다.
+// - 짧은 링크(#k=<번호>.<키>): 이 사이트의 /api/share/<번호>에서 암호문을 받아 링크의 키로 브라우저에서 푼다.
+//   키는 서버로 보내지 않는다. 사이트가 하는 요청은 이것 하나뿐이다(CSP connect-src 'self').
+// - 옛 링크(#s=<데이터>): 데이터가 링크 안에 있다. 요청 없음.
+// - 링크를 열면 # 부분을 이 탭의 sessionStorage로 옮기고 주소를 #/overview로 바꾼다.
 //   화면 전환(dashboard-router.js)이 # 를 쓰기 때문이다. 새로고침해도 같은 탭에서는 계속 보인다.
 // - 기간 바꾸기는 막는다(링크에 든 기간만 있다). 확장 전용 표시(수집 상태, 백업 링크)는 공유 안내로 바꾼다.
 (() => {
   const PREFIX = '/api/dashboard/';
-  const STORE_KEY = 'blog_share_data';
-  const HASH_PREFIX = '#s=';
+  const STORE_KEY = 'blog_share_ref';
 
-  // ---- 링크에서 데이터 꺼내기(라우터보다 먼저) ----
-  let text: string | null = null;
-  if (location.hash.startsWith(HASH_PREFIX)) {
-    text = location.hash.slice(HASH_PREFIX.length);
-    try { sessionStorage.setItem(STORE_KEY, text); } catch { /* 저장 못 하면 새로고침 때 다시 링크로 열어야 함 */ }
+  // ---- 링크에서 공유 정보 꺼내기(라우터보다 먼저) ----
+  let ref: string | null = null;
+  if (/^#[ks]=/.test(location.hash)) {
+    ref = location.hash.slice(1);
+    try { sessionStorage.setItem(STORE_KEY, ref); } catch { /* 저장 못 하면 새로고침 때 다시 링크로 열어야 함 */ }
     history.replaceState(null, '', location.pathname + location.search + '#/overview');
   } else {
-    try { text = sessionStorage.getItem(STORE_KEY); } catch { text = null; }
+    try { ref = sessionStorage.getItem(STORE_KEY); } catch { ref = null; }
   }
+  const text = ref;
+
+  const original = window.fetch.bind(window);
 
   type Payload = { createdAt: string; from: string; to: string; responses: Record<string, unknown> };
+  async function loadShare(r: string): Promise<Payload> {
+    const c = await import('./core/share-codec.js');
+    if (r.startsWith(c.SHARE_PREFIX)) return c.decodeShare(r.slice(c.SHARE_PREFIX.length));
+    const k = c.refFromHash(r);
+    if (!k) throw new c.ShareDecodeError('공유 링크가 잘렸거나 바뀌었습니다.');
+    let res: Response;
+    try {
+      res = await original('/api/share/' + k.id, { cache: 'no-store', credentials: 'omit' });
+    } catch {
+      throw new Error('공유 데이터를 받지 못했습니다. 인터넷 연결을 확인하고 새로고침해 주세요.');
+    }
+    if (res.status === 404) throw new Error('없거나 기간이 지나 지워진 공유입니다. 보낸 사람에게 새 링크를 받아 주세요.');
+    if (!res.ok) throw new Error('공유 데이터를 받지 못했습니다(HTTP ' + res.status + '). 잠시 뒤 새로고침해 주세요.');
+    return c.openShare(new Uint8Array(await res.arrayBuffer()), k.key);
+  }
+
   const data: Promise<Payload> = text
-    ? import('./core/share-codec.js').then((c) => c.decodeShare(text!))
+    ? loadShare(text)
     : Promise.reject(new Error('공유 데이터가 없습니다. 받은 공유 링크 전체로 다시 열어 주세요.'));
   data.catch(() => {}); // 오류는 화면 안내에서 보여 준다
 
   const json = (status: number, body: unknown) =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-  const original = window.fetch.bind(window);
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(href, location.href);
@@ -111,8 +131,10 @@
       }
     }, (e: unknown) => {
       banner.remove();
-      landing('공유 링크를 열 수 없습니다', (e instanceof Error ? e.message : String(e))
-        + ' 메신저가 긴 링크를 자른 경우가 많습니다. 보낸 사람에게 더 짧은 기간으로 다시 만들어 달라고 해 주세요.');
+      // 링크 형식·키 문제(ShareDecodeError)는 잘린 링크일 때가 많다. 만료·네트워크는 메시지가 이미 안내한다.
+      const msg = e instanceof Error ? e.message : String(e);
+      const cut = e instanceof Error && e.constructor.name === 'ShareDecodeError';
+      landing('공유 링크를 열 수 없습니다', msg + (cut ? ' 받은 링크 전체를 다시 복사해서 열어 주세요.' : ''));
     });
   }
 

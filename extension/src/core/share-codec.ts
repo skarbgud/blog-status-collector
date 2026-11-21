@@ -165,15 +165,15 @@ export function pickResponses(recorded: Record<string, unknown>): Record<string,
   return out;
 }
 
-/** 링크 데이터를 만든다. 응답은 compactResponses로 줄여서 넣고, decodeShare가 되돌린다. */
-export async function encodeShare(payload: SharePayload): Promise<string> {
+/** 공유 데이터를 압축한 바이트로(응답은 compactResponses로 줄인다). 링크 안 데이터와 암호화 공유가 같이 쓴다. */
+export async function packShare(payload: SharePayload): Promise<Uint8Array> {
   const packed = { ...payload, responses: compactResponses(pickResponses(payload.responses)) };
   const json = new TextEncoder().encode(JSON.stringify(packed));
-  return toBase64Url(await pipe(json, new CompressionStream('deflate-raw'), Number.MAX_SAFE_INTEGER));
+  return pipe(json, new CompressionStream('deflate-raw'), Number.MAX_SAFE_INTEGER);
 }
 
-export async function decodeShare(text: string): Promise<SharePayload> {
-  const bytes = fromBase64Url(text.trim());
+/** packShare를 되돌리고 형식을 검사한다. */
+export async function unpackShare(bytes: Uint8Array): Promise<SharePayload> {
   if (bytes.length === 0) throw new ShareDecodeError('링크에 공유 데이터가 없습니다.');
   let raw: Uint8Array;
   try {
@@ -196,6 +196,67 @@ export async function decodeShare(text: string): Promise<SharePayload> {
     throw new ShareDecodeError('공유 데이터에 필요한 값이 빠져 있습니다.');
   }
   return { v: p.v, createdAt: p.createdAt, from: p.from, to: p.to, responses: expandResponses(pickResponses(p.responses)) };
+}
+
+/** 링크 안에 데이터를 통째로 넣는 방식(#s=). 메신저가 긴 링크를 잘라서 지금은 짧은 링크(#k=)를 만든다. 열기는 계속 지원한다. */
+export async function encodeShare(payload: SharePayload): Promise<string> {
+  return toBase64Url(await packShare(payload));
+}
+
+export async function decodeShare(text: string): Promise<SharePayload> {
+  return unpackShare(fromBase64Url(text.trim()));
+}
+
+// ---- 짧은 링크(#k=<id>.<key>): 암호문은 보기 사이트(Netlify Blobs)에, 키는 링크 # 뒤에만 ----
+// 암호문 형식: [버전 1바이트=1][IV 12바이트][AES-256-GCM 암호문+태그]. 키는 32바이트 무작위(base64url 43자).
+export const SEALED_VERSION = 1;
+export const KEY_PREFIX = 'k=';
+const ID_RE = /^[A-Za-z0-9_-]{16}$/;
+const KEY_RE = /^[A-Za-z0-9_-]{43}$/;
+
+async function aesKey(raw: Uint8Array, use: KeyUsage): Promise<CryptoKey> {
+  return crypto.subtle.importKey('raw', raw as Uint8Array<ArrayBuffer>, { name: 'AES-GCM' }, false, [use]);
+}
+
+/** 공유 데이터를 압축하고 새 키로 암호화한다. 키는 링크에만 넣고 서버로 보내지 않는다. */
+export async function sealShare(payload: SharePayload): Promise<{ body: Uint8Array; key: string }> {
+  const raw = crypto.getRandomValues(new Uint8Array(32));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plain = await packShare(payload);
+  const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await aesKey(raw, 'encrypt'),
+    plain as Uint8Array<ArrayBuffer>));
+  const body = new Uint8Array(1 + iv.length + cipher.length);
+  body[0] = SEALED_VERSION;
+  body.set(iv, 1);
+  body.set(cipher, 1 + iv.length);
+  return { body, key: toBase64Url(raw) };
+}
+
+export async function openShare(body: Uint8Array, key: string): Promise<SharePayload> {
+  if (!KEY_RE.test(key)) throw new ShareDecodeError('링크의 키 부분이 잘렸거나 바뀌었습니다.');
+  if (body.length < 1 + 12 + 16 || body[0] !== SEALED_VERSION) throw new ShareDecodeError('공유 데이터 형식이 잘못됐습니다.');
+  let plain: Uint8Array;
+  try {
+    plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: body.subarray(1, 13) as Uint8Array<ArrayBuffer> },
+      await aesKey(fromBase64Url(key), 'decrypt'), body.subarray(13) as Uint8Array<ArrayBuffer>));
+  } catch {
+    throw new ShareDecodeError('공유 데이터를 풀 수 없습니다(링크의 키가 맞지 않습니다).');
+  }
+  return unpackShare(plain);
+}
+
+/** 짧은 링크: 보기 페이지 주소#k=<id>.<key> */
+export function shortLink(viewerUrl: string, id: string, key: string): string {
+  if (!ID_RE.test(id) || !KEY_RE.test(key)) throw new Error('공유 번호나 키 형식이 잘못됐습니다.');
+  return shareLink(viewerUrl, id + '.' + key).replace('#' + SHARE_PREFIX, '#' + KEY_PREFIX);
+}
+
+/** location.hash에서 짧은 링크의 번호와 키를 꺼낸다. 형식이 다르면 null. */
+export function refFromHash(hash: string): { id: string; key: string } | null {
+  const h = hash.replace(/^#/, '');
+  if (!h.startsWith(KEY_PREFIX)) return null;
+  const [id, key] = h.slice(KEY_PREFIX.length).split('.');
+  return id !== undefined && key !== undefined && ID_RE.test(id) && KEY_RE.test(key) ? { id, key } : null;
 }
 
 /** 보기 페이지 주소와 데이터로 링크를 만든다. 주소의 기존 #은 버린다. */
