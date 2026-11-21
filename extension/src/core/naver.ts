@@ -73,6 +73,12 @@ export interface StatClientOptions {
   maxConcurrent?: number;
   /** 요청 시작 사이 최소 간격(기본 0) */
   minGapMs?: number;
+  /** 429 재시도의 최소 대기(Retry-After가 없을 때, 기본 1초). 무작위 백오프가 너무 짧게 뽑혀 바로 다시 막히지 않게 */
+  min429Ms?: number;
+  /** 마지막 429 뒤 이만큼 막히지 않으면 동시 수를 하나씩 되돌린다(기본 15초) */
+  recoverMs?: number;
+  /** 테스트용 시계 */
+  now?: () => number;
   /** 429·502·503·504·타임아웃·네트워크 오류 재시도 횟수(Java app.collect.max-retries) */
   maxRetries?: number;
   baseBackoffMs?: number;
@@ -104,6 +110,7 @@ export function disguised429(status: number, body: string): boolean {
 /**
  * 한 회차 동안 쓰는 클라이언트. 회차마다 새로 만든다.
  * - 동시에 최대 maxConcurrent(기본 6)개를 보내고, 요청 사이 간격은 minGapMs(기본 0)다(2026-11-21 1~2초 직렬에서 바꿈).
+ * - 429 재시도는 최소 1초 쉰다. 429 없이 15초가 지나면 동시 수를 하나씩 원래(maxConcurrent)까지 되돌린다.
  * - 429(또는 본문이 statusCode 429인 500)를 받으면 모든 요청이 Retry-After(없으면 백오프)만큼 함께 쉬고, 그 회차의 동시 수를 절반(최소 1)으로 줄인다.
  * - 재시도를 포함한 실제 요청 수를 상한으로 센다.
  * - 429(Retry-After 우선)·502·503·504·타임아웃·네트워크 오류는 백오프 후 재시도한다.
@@ -118,7 +125,12 @@ export class StatClient {
   private readonly waiters: (() => void)[] = [];
   private concurrency: number;
   private pauseUntil = 0;
+  private limitedAt = 0;
+  private readonly maxConcurrentLimit: number;
   private readonly minGapMs: number;
+  private readonly min429Ms: number;
+  private readonly recoverMs: number;
+  private readonly now: () => number;
   private readonly maxRetries: number;
   private readonly baseBackoffMs: number;
   private readonly capBackoffMs: number;
@@ -130,7 +142,11 @@ export class StatClient {
 
   constructor(private readonly opts: StatClientOptions) {
     this.concurrency = Math.max(1, Math.floor(opts.maxConcurrent ?? 6));
+    this.maxConcurrentLimit = this.concurrency;
     this.minGapMs = Math.max(0, opts.minGapMs ?? 0);
+    this.min429Ms = Math.max(0, opts.min429Ms ?? 1000);
+    this.recoverMs = Math.max(0, opts.recoverMs ?? 15_000);
+    this.now = opts.now ?? Date.now;
     this.maxRetries = opts.maxRetries ?? 3;
     this.baseBackoffMs = opts.baseBackoffMs ?? 1000;
     this.capBackoffMs = opts.capBackoffMs ?? 30_000;
@@ -180,7 +196,10 @@ export class StatClient {
       let last: StatResponse | null = null;
       try {
         const res = await this.send(url);
-        if (!RETRY_STATUS.has(res.status)) return { status: res.status, body: res.body };
+        if (!RETRY_STATUS.has(res.status)) {
+          this.recover();
+          return { status: res.status, body: res.body };
+        }
         last = { status: res.status, body: res.body };
         failure = 'HTTP ' + res.status;
         if (res.status === 429) retryAfter = parseRetryAfterMs(res.retryAfter);
@@ -194,10 +213,11 @@ export class StatClient {
         this.wakeAll();
         throw new ClientBlockedError(label + ' 수집 실패: 재시도 ' + this.maxRetries + '회 소진 (' + failure + ')');
       }
+      const limited = last?.status === 429;
       const delay = retryAfter >= 0
         ? Math.min(retryAfter, this.capBackoffMs)
-        : backoffMs(attempt, this.baseBackoffMs, this.capBackoffMs, this.random());
-      if (last?.status === 429) this.slowDown(delay);
+        : Math.max(limited ? this.min429Ms : 0, backoffMs(attempt, this.baseBackoffMs, this.capBackoffMs, this.random()));
+      if (limited) this.slowDown(delay);
       this.log('warn', '[재시도] ' + label + ' ' + failure + ' → ' + delay + 'ms 후 (' + (attempt + 1) + '/' + this.maxRetries + ')');
       await this.sleep(delay);
     }
@@ -209,7 +229,7 @@ export class StatClient {
       throw new BudgetExceededError('이번 회차 요청 상한 ' + this.opts.maxRequests + '회에 도달');
     }
     this.used++;
-    this.lastAt = Date.now();
+    this.lastAt = this.now();
   }
 
   private async send(url: URL): Promise<StatResponse & { retryAfter: string | null }> {
@@ -255,7 +275,7 @@ export class StatClient {
       if (this.blocked) throw new ClientBlockedError(this.blocked);
     }
     this.inFlight++;
-    const now = Date.now();
+    const now = this.now();
     const gap = this.lastAt === 0 ? 0 : this.lastAt + this.minGapMs - now;
     const wait = Math.max(this.pauseUntil - now, gap);
     if (wait > 0) {
@@ -275,12 +295,24 @@ export class StatClient {
 
   /** 429: 새 요청 전부가 delay만큼 함께 쉬고, 이 회차의 동시 수를 절반(최소 1)으로 줄인다. */
   private slowDown(delay: number): void {
-    this.pauseUntil = Math.max(this.pauseUntil, Date.now() + delay);
+    this.limitedAt = this.now();
+    this.pauseUntil = Math.max(this.pauseUntil, this.limitedAt + delay);
     const next = Math.max(1, Math.floor(this.concurrency / 2));
     if (next < this.concurrency) {
       this.log('warn', '[감속] 429를 받아 동시 요청을 ' + this.concurrency + ' → ' + next + '개로 줄입니다.');
       this.concurrency = next;
     }
+  }
+
+  /** 성공 응답마다: 마지막 429 뒤 recoverMs가 지났으면 동시 수를 하나 되돌리고, 기다리던 요청 하나를 더 보낸다. */
+  private recover(): void {
+    if (this.concurrency >= this.maxConcurrentLimit) return;
+    const now = this.now();
+    if (now - this.limitedAt < this.recoverMs) return;
+    this.concurrency++;
+    this.limitedAt = now; // 다음 회복은 다시 recoverMs 뒤
+    this.log('info', '[회복] 429 없이 ' + Math.round(this.recoverMs / 1000) + '초가 지나 동시 요청을 ' + this.concurrency + '개로 늘립니다.');
+    this.waiters.shift()?.();
   }
 
   /** 막힌 회차에서 슬롯을 기다리던 요청을 모두 깨워 같은 오류로 끝나게 한다. */

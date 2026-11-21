@@ -202,3 +202,30 @@ test('500: 본문이 429가 아니면 재시도하지 않고 그 요청만 실�
   assert.equal(f.calls(), 1);
   assert.equal(f.client.maxConcurrent, 6);
 });
+
+test('429: Retry-After가 없으면 최소 1초 쉬고 재시도한다(무작위 백오프가 짧게 뽑혀도)', async () => {
+  const f = fake([429, 200]);
+  const c = new StatClient({ maxRequests: 10, random: () => 0.01, sleep: async (ms) => { f.sleeps.push(Math.round(ms)); },
+    fetchFn: (() => { let n = 0; return async () => (n++ === 0 ? new Response(null, { status: 429 })
+      : new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })); })() });
+  await c.get(PATH);
+  assert.equal(f.sleeps[0], 1000);
+});
+
+test('회복: 429 뒤 15초 동안 막히지 않으면 동시 수를 하나씩 원래까지 되돌린다', async () => {
+  let clock = 0;
+  let n = 0;
+  const c = new StatClient({ maxRequests: 100, random: () => 0.5, now: () => clock, sleep: async () => {},
+    fetchFn: async () => (n++ === 0 ? new Response(null, { status: 429 })
+      : new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })) });
+  await c.get(PATH);
+  assert.equal(c.maxConcurrent, 3);
+  clock += 5_000;
+  await c.get(PATH);
+  assert.equal(c.maxConcurrent, 3, '15초 전이면 그대로');
+  clock += 10_000;
+  await c.get(PATH);
+  assert.equal(c.maxConcurrent, 4);
+  for (let i = 0; i < 5; i++) { clock += 15_000; await c.get(PATH); }
+  assert.equal(c.maxConcurrent, 6, '원래 값을 넘지 않는다');
+});
