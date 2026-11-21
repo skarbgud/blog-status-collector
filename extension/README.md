@@ -33,7 +33,7 @@
 - **데이터는 어디에도 저장되지 않는다.** 데이터는 링크의 `#s=` 뒤(fragment)에 있고, 브라우저는 #뒤를 서버로 보내지 않는다. 보기 페이지(Netlify)는 화면 코드만 있는 정적 사이트다. 대신 **링크를 가진 사람은 누구나** 그 화면을 볼 수 있다.
 - 만드는 쪽(`src/dashboard-share.ts`): 화면 스크립트가 받은 `/api/dashboard/*` 응답을 기록해 두었다가(fetch를 한 번 더 감쌈) 지금 기간 응답만 모은다. 수집 상태(`session`)는 뺀다. 화면이 아직 다 불러오지 않았거나 이전 기간 응답이 섞여 있으면 만들지 않는다.
 - 데이터 형식(`src/core/share-codec.ts`): JSON → deflate-raw(브라우저 내장 `CompressionStream`) → base64url. 블로그 지표 응답은 열 형식으로 바꾸고, 화면이 쓰지 않는 지표(`REFERER_SEARCH`, `REFERER_SITE`, `RELATION_VISIT`)는 빼고, 소수는 셋째 자리까지 반올림한다. 풀 때 화면이 받는 모양으로 되돌린다. 풀었을 때 20MB를 넘으면 거부한다.
-- 링크 길이(2026-11-21 실데이터): **7일 약 3.8만 자, 30일 약 11.8만 자.** 대부분이 게시글별 일 조회수·순위다. 크롬은 열 수 있지만 메신저에 따라 긴 링크가 잘릴 수 있어 3만 자를 넘으면 화면에 알린다. 길이 재기: `node tools/share-size.mjs <export.json>`(`npm test` 뒤).
+- 링크 길이: 위 줄이기로 실데이터 기준 30일 링크가 약 절반이 되고, 7일 링크는 30일의 약 3분의 1이다(2026-11-21 측정). 대부분이 게시글별 일 조회수·순위다. 글이 많은 블로그는 30일 링크가 수만~수십만 자가 될 수 있다. 크롬은 열 수 있지만 메신저에 따라 긴 링크가 잘릴 수 있어 3만 자를 넘으면 화면에 알린다. 길이 재기: `node tools/share-size.mjs <export.json>`(`npm test` 뒤).
 - 보기 페이지(`src/share-viewer.ts`): `dashboard.html`에서 `dashboard-api.js`를 이것으로 바꾼 페이지다. 링크를 열면 데이터를 그 탭의 sessionStorage로 옮기고 주소를 `#/overview`로 바꾼다(화면 전환이 #를 쓰기 때문, 새로고침해도 유지). 기간 바꾸기와 확장 전용 표시(수집 상태, 백업 링크)는 숨긴다.
 - 빌드·배포: `npm run build:viewer` → `viewer-dist/`(확장 빌드에서 화면 파일만 꺼내고, 화면이 import하는 `core/` 모듈만 따라가며 넣는다. 수집기·DB 코드는 올리지 않는다). Netlify는 저장소 루트의 `netlify.toml`로 빌드한다. 헤더: CSP `connect-src 'none'`(보기 페이지는 어디에도 요청하지 않는다), `Referrer-Policy: no-referrer`, `noindex`.
 - 로컬 확인: `npm run build:viewer && node tools/serve-viewer.mjs` → http://localhost:8787/ (netlify.toml과 같은 헤더). 확장에서 "보기 페이지 주소 바꾸기"에 이 주소를 넣으면 공유 링크를 로컬에서 열어 볼 수 있다.

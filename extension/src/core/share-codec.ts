@@ -71,7 +71,7 @@ async function pipe(bytes: Uint8Array, stream: CompressionStream | Decompression
 }
 
 // ---- 크기 줄이기(링크 길이의 대부분은 블로그 지표 응답이다) ----
-// 30일 실데이터로 잰 링크 데이터 길이: 그대로 24만 자 → 아래 세 가지 적용 후 약 10만 자(7일은 6.9만 → 3.7만).
+// 실데이터 30일 기준으로 아래 세 가지를 적용하면 링크 데이터 길이가 약 절반이 된다(7일도 비슷한 비율).
 
 /** 블로그 지표 화면(dashboard-metrics.js·dashboard-hours.js)이 쓰지 않는 지표. 공유에서 뺀다. */
 export const UNUSED_METRICS = new Set(['REFERER_SEARCH', 'REFERER_SITE', 'RELATION_VISIT']);
