@@ -15,6 +15,13 @@ export class Db {
       if (e.data.error) p.reject(new Error(e.data.error));
       else p.resolve(e.data.rows ?? []);
     };
+    // 워커 로드·초기화 실패 시 기다리는 질의를 모두 실패로 끝낸다(팝업이 '실행 중'에 멈추지 않게).
+    this.worker.onerror = (e: ErrorEvent) => {
+      e.preventDefault();
+      const err = new Error('DB 워커 오류: ' + (e.message || '로드 실패'));
+      for (const p of this.pending.values()) p.reject(err);
+      this.pending.clear();
+    };
   }
 
   query(sql: string, bind?: unknown[]): Promise<Row[]> {

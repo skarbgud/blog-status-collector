@@ -25,7 +25,9 @@ btn.addEventListener('click', async () => {
   out.replaceChildren();
   status.textContent = '실행 중… (요청 사이 2~5초, 30초쯤 걸립니다)';
   try {
-    const r = (await chrome.runtime.sendMessage({ target: 'background', type: 'poc' })) as PocReport & { fatal?: string };
+    const ready = (await chrome.runtime.sendMessage({ target: 'background', type: 'ensure-offscreen' })) as { ok: boolean; error?: string };
+    if (!ready.ok) throw new Error(ready.error);
+    const r = (await chrome.runtime.sendMessage({ target: 'offscreen', type: 'poc' })) as PocReport & { fatal?: string };
     if (r.fatal) throw new Error(r.fatal);
     const l = r.login;
     out.append(line('로그인', l.loggedIn ? '됨 (블로그 ' + mask(l.blogId ?? '') + ')' : '안 됨 ' + (l.error ?? 'HTTP ' + l.http), l.loggedIn));
@@ -35,7 +37,7 @@ btn.addEventListener('click', async () => {
     }
     const s = r.sqlite;
     out.append(line('SQLite', s.error ? s.error : 'v' + s.version + ' · 실행 ' + s.runCount + '회째 · 영구 저장 ' + (s.persisted ? '허용' : '미허용'), !s.error));
-    status.textContent = '완료 (' + r.elapsedSec + '초)';
+    status.textContent = '완료 (' + r.elapsedSec + '초, 네이버 요청 ' + r.requests + '회)';
   } catch (e) {
     status.textContent = '실패: ' + String(e);
   } finally {

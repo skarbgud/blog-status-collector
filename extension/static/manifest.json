@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "네이버 블로그 통계를 내 브라우저 안에서 수집·저장한다. 데이터는 이 브라우저 밖으로 나가지 않는다.",
   "minimum_chrome_version": "116",
-  "permissions": ["offscreen", "storage", "unlimitedStorage"],
+  "permissions": ["offscreen", "unlimitedStorage"],
   "host_permissions": ["https://blog.stat.naver.com/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_title": "블로그 통계", "default_popup": "popup.html" },
