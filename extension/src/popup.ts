@@ -91,6 +91,13 @@ btn.addEventListener('click', async () => {
   await refresh();
 });
 
+document.getElementById('open-dash')!.addEventListener('click', () => {
+  void chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') });
+});
+document.getElementById('open-opts')!.addEventListener('click', () => {
+  void chrome.runtime.openOptionsPage();
+});
+
 (async () => {
   try {
     await ensureOffscreen();

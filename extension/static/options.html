@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>백업·가져오기</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --fg:#1d2330; --muted:#6b7280; --ok:#15803d; --bad:#b91c1c; --line:#e5e7eb; --btn:#1d2330; --btnfg:#fff; color-scheme: light; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111317; --card:#16181d; --fg:#e5e7eb; --muted:#9ca3af; --ok:#4ade80; --bad:#f87171; --line:#2a2e37; --btn:#e5e7eb; --btnfg:#16181d; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.6 system-ui, sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .lead { color:var(--muted); margin:0 0 20px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:14px; }
+  h2 { font-size:15px; margin:0 0 6px; }
+  p { margin:0 0 10px; color:var(--muted); }
+  code { font-size:12.5px; overflow-wrap:anywhere; }
+  button, label.file { display:inline-block; padding:8px 14px; font:inherit; font-weight:600; border:0; border-radius:6px; cursor:pointer; background:var(--btn); color:var(--btnfg); }
+  button:disabled, label.file.disabled { opacity:.5; cursor:default; }
+  input[type=file] { position:absolute; width:1px; height:1px; opacity:0; }
+  input[type=number] { width:110px; padding:7px 8px; font:inherit; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .result { margin-top:10px; min-height:1.6em; overflow-wrap:anywhere; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  a { color:inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>백업·가져오기</h1>
+  <p class="lead">데이터는 이 브라우저 안에만 있습니다. 확장을 삭제하면 함께 지워지므로 가끔 백업 파일을 받아 두세요. <a href="dashboard.html">대시보드로</a></p>
+
+  <section>
+    <h2>백업 내보내기</h2>
+    <p>지금 저장된 모든 데이터(유입경로, 검색어, 지표, 수집 기록)를 파일 하나(.sqlite)로 받습니다.</p>
+    <button id="export">백업 파일 받기</button>
+    <div class="result" id="export-out"></div>
+  </section>
+
+  <section>
+    <h2>백업에서 복원</h2>
+    <p>지금 데이터를 백업 파일의 내용으로 <b>바꿉니다</b>. 다른 PC로 옮길 때 씁니다. 이 확장의 백업이 아니거나 손상된 파일이면 아무것도 바꾸지 않습니다.</p>
+    <label class="file" id="restore-label">백업 파일 선택…<input type="file" id="restore" accept=".sqlite,.sqlite3,.db,application/octet-stream"></label>
+    <div class="result" id="restore-out"></div>
+  </section>
+
+  <section>
+    <h2>기존 데이터 가져오기 (Java 버전)</h2>
+    <p>이전 수집기(H2)의 데이터를 가져옵니다. 이미 이 확장에 있는 날짜·지표는 그대로 두고 없는 것만 채웁니다. 여러 번 가져와도 결과가 같습니다.</p>
+    <p>파일 만들기: 이전 수집기 폴더에서 <code>./gradlew exportJson</code> → <code>data/export/blogstat-export.json</code></p>
+    <label class="file" id="json-label">JSON 파일 선택…<input type="file" id="json" accept=".json,application/json"></label>
+    <div class="result" id="json-out"></div>
+  </section>
+
+  <section>
+    <h2>하루 요청 상한</h2>
+    <p>네이버 통계에 하루 동안 보내는 요청 수의 상한입니다. 처음 30일치를 받을 때 이 상한에서 멈추고 다음 날 이어 받습니다.</p>
+    <div class="row"><input type="number" id="cap" min="50" max="2000" step="50"> <span>회</span> <button id="save-cap">저장</button></div>
+    <div class="result" id="cap-out"></div>
+  </section>
+</main>
+<script type="module" src="options.js"></script>
+</body>
+</html>

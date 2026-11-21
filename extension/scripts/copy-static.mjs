@@ -16,4 +16,9 @@ if (!existsSync(sqliteDir)) {
 }
 cpSync(sqliteDir, join(dist, 'vendor', 'sqlite'), { recursive: true });
 
+// Chart.js(대시보드). Java 대시보드가 CDN으로 쓰던 4.4.1과 같은 버전을 번들에 넣는다.
+const chartFile = join(root, 'node_modules', 'chart.js', 'dist', 'chart.umd.js');
+if (!existsSync(chartFile)) throw new Error('chart.js가 없습니다. npm install을 먼저 실행하세요.');
+cpSync(chartFile, join(dist, 'vendor', 'chart.umd.js'));
+
 console.log('정적 파일과 vendor 복사 완료 →', dist);

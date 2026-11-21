@@ -18,6 +18,8 @@
   #progress[hidden] { display:none; }
   button { width:100%; margin-top:12px; padding:8px; font:inherit; font-weight:600; cursor:pointer; border:0; border-radius:6px; background:var(--btn); color:var(--btnfg); }
   button:disabled { opacity:.5; cursor:default; }
+  .links { display:flex; gap:8px; } .links button { margin-top:8px; }
+  button.sec { background:transparent; color:var(--fg); border:1px solid var(--line); }
   .note { margin:10px 0 0; color:var(--muted); font-size:12px; }
 </style>
 </head>
@@ -26,6 +28,7 @@
   <div id="rows"></div>
   <div id="progress" hidden></div>
   <button id="run">지금 수집</button>
+  <div class="links"><button id="open-dash" class="sec">대시보드 열기</button><button id="open-opts" class="sec">백업·가져오기</button></div>
   <p class="note">로그인돼 있으면 30분마다 확인해서 어제까지 빠진 것을 받습니다(04:00 이후, 요청 사이 2~5초). 데이터는 이 브라우저에만 저장됩니다. 확장을 삭제하면 데이터도 지워집니다.</p>
   <script type="module" src="popup.js"></script>
 </body>

@@ -15,6 +15,7 @@
     "typescript": "6.0.3"
   },
   "dependencies": {
-    "@sqlite.org/sqlite-wasm": "3.53.4-build2"
+    "@sqlite.org/sqlite-wasm": "3.53.4-build2",
+    "chart.js": "4.4.1"
   }
 }
