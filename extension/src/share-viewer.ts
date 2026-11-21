@@ -48,8 +48,37 @@
     return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' });
   };
 
+  /** 링크 없이 열었거나 링크가 잘렸을 때: 빈 대시보드 대신 안내 화면만 보여 준다. */
+  function landing(title: string, detail: string): void {
+    const layout = document.querySelector<HTMLElement>('.layout');
+    if (layout) layout.style.display = 'none';
+    const card = document.createElement('div');
+    Object.assign(card.style, {
+      maxWidth: '520px', margin: '15vh auto 0', padding: '28px 24px', background: 'var(--card)',
+      border: '1px solid var(--line)', borderRadius: '12px', textAlign: 'center',
+    });
+    const h = document.createElement('h1');
+    h.textContent = title;
+    h.style.fontSize = '18px';
+    h.style.margin = '0 0 10px';
+    const p = document.createElement('p');
+    p.textContent = detail;
+    Object.assign(p.style, { color: 'var(--muted)', margin: '0', lineHeight: '1.6' });
+    card.append(h, p);
+    const wrap = document.createElement('div');
+    wrap.style.padding = '0 16px';
+    wrap.append(card);
+    document.body.append(wrap);
+  }
+
   function setup(): void {
     document.title = '블로그 통계 (공유)';
+    if (!text) {
+      landing('블로그 통계 공유 페이지',
+        '이 페이지는 공유 링크로 여는 곳입니다. 받은 링크 전체(주소 끝의 #s=… 까지)를 그대로 열어 주세요. '
+        + '데이터는 링크 안에만 있고 이 사이트에는 저장되지 않습니다.');
+      return;
+    }
     // 기간은 링크에 든 것 하나뿐이다.
     document.querySelectorAll<HTMLElement>('.presets, #apply').forEach((e) => { e.hidden = true; e.style.display = 'none'; });
     document.querySelectorAll<HTMLInputElement>('#from, #to').forEach((e) => { e.disabled = true; });
@@ -81,8 +110,9 @@
         status.append(row('보기', '공유(읽기 전용)'), row('만든 시각', fmt(p.createdAt)));
       }
     }, (e: unknown) => {
-      banner.className = 'banner danger';
-      banner.textContent = e instanceof Error ? e.message : String(e);
+      banner.remove();
+      landing('공유 링크를 열 수 없습니다', (e instanceof Error ? e.message : String(e))
+        + ' 메신저가 긴 링크를 자른 경우가 많습니다. 보낸 사람에게 더 짧은 기간으로 다시 만들어 달라고 해 주세요.');
     });
   }
 

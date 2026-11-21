@@ -5,6 +5,8 @@
 (() => {
   const PREFIX = '/api/dashboard/';
   const VIEWER_KEY = 'share_viewer_url';
+  /** 배포된 보기 페이지(Netlify, 저장소 루트 netlify.toml). 다른 곳에 올렸으면 "보기 페이지 주소 바꾸기"로 바꾼다. */
+  const DEFAULT_VIEWER = 'https://blog-status-collector.netlify.app/';
   /** 30일 링크는 보통 이보다 훨씬 길다. 메신저에 따라 긴 링크가 잘릴 수 있어 이 길이를 넘으면 알린다. */
   const LONG_LINK = 30_000;
 
@@ -34,8 +36,13 @@
   function viewerUrl(ask: boolean): string | null {
     let saved: string | null = null;
     try { saved = localStorage.getItem(VIEWER_KEY); } catch { /* 저장소 없음 */ }
-    if (saved && !ask) return saved;
-    const v = prompt('공유 링크를 열 보기 페이지 주소(Netlify)를 입력하세요.\n예: https://내사이트.netlify.app/', saved ?? 'https://');
+    if (!ask) return saved || DEFAULT_VIEWER;
+    const v = prompt('공유 링크를 열 보기 페이지 주소를 입력하세요.\n비우고 확인하면 기본 주소(' + DEFAULT_VIEWER + ')로 돌아갑니다.',
+      saved || DEFAULT_VIEWER);
+    if (v !== null && v.trim() === '') {
+      try { localStorage.removeItem(VIEWER_KEY); } catch { /* 저장소 없음 */ }
+      return DEFAULT_VIEWER;
+    }
     if (!v) return null;
     try {
       const u = new URL(v.trim());

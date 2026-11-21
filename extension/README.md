@@ -37,7 +37,8 @@
 - 보기 페이지(`src/share-viewer.ts`): `dashboard.html`에서 `dashboard-api.js`를 이것으로 바꾼 페이지다. 링크를 열면 데이터를 그 탭의 sessionStorage로 옮기고 주소를 `#/overview`로 바꾼다(화면 전환이 #를 쓰기 때문, 새로고침해도 유지). 기간 바꾸기와 확장 전용 표시(수집 상태, 백업 링크)는 숨긴다.
 - 빌드·배포: `npm run build:viewer` → `viewer-dist/`(확장 빌드에서 화면 파일만 꺼내고, 화면이 import하는 `core/` 모듈만 따라가며 넣는다. 수집기·DB 코드는 올리지 않는다). Netlify는 저장소 루트의 `netlify.toml`로 빌드한다. 헤더: CSP `connect-src 'none'`(보기 페이지는 어디에도 요청하지 않는다), `Referrer-Policy: no-referrer`, `noindex`.
 - 로컬 확인: `npm run build:viewer && node tools/serve-viewer.mjs` → http://localhost:8787/ (netlify.toml과 같은 헤더). 확장에서 "보기 페이지 주소 바꾸기"에 이 주소를 넣으면 공유 링크를 로컬에서 열어 볼 수 있다.
-- 보기 페이지 주소는 처음 "공유 링크 만들기"를 누를 때 한 번 묻고 확장 페이지 localStorage에 둔다.
+- 보기 페이지 주소 기본값은 `https://blog-status-collector.netlify.app/`(`dashboard-share.ts`의 `DEFAULT_VIEWER`)이다. "보기 페이지 주소 바꾸기"로 바꾸면 확장 페이지 localStorage에 두고, 비우면 기본값으로 돌아간다.
+- 링크 없이 보기 페이지를 열거나 링크가 잘렸으면 대시보드 대신 안내 화면만 보여 준다.
 
 ## 데이터
 - 저장 위치: 확장의 OPFS(브라우저 내부) SQLite. **확장을 삭제하면 지워진다** → 가끔 옵션에서 백업을 받는다.
