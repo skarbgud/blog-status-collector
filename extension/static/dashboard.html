@@ -159,6 +159,8 @@
   .rf-tools button, .rf-act button, .rf-act a { font: inherit; font-size: 12px; padding: 4px 9px; border: 1px solid var(--line);
               border-radius: 6px; background: var(--card); color: var(--text); cursor: pointer; text-decoration: none; white-space: nowrap; }
   .rf-tools button { font-size: 13px; padding: 6px 10px; }
+  #r-kind { font: inherit; font-size: 13px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px;
+             background: var(--bg); color: var(--text); max-width: 100%; }
   .rf-check { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); cursor: pointer; }
   .rf-note { margin: 4px 0 8px; font-size: 12px; color: var(--muted); }
   .rf-note:empty { display: none; }
@@ -296,6 +298,7 @@
         <button type="button" data-v="ref" class="active">유입처별</button>
         <button type="button" data-v="blog" title="'블로그 ○○' 배지가 붙은 줄만 블로그별로 모아 봅니다">블로그별</button>
       </div>
+      <select id="r-kind" aria-label="어디서 왔는지 고르기" hidden></select>
       <input type="search" id="r-filter" placeholder="라벨·URL·검색어·블로그 ID 찾기" autocomplete="off" aria-label="상세 유입경로 찾기">
       <label class="rf-check"><input type="checkbox" id="r-hide-own"> 내 블로그 안 이동 숨기기</label>
       <button type="button" id="r-toggle">모두 접기</button>

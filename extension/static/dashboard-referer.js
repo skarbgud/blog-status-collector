@@ -13,6 +13,8 @@
   let open = true;
   /** 'ref' 유입처별 | 'blog' 블로그별('블로그 ○○' 배지가 붙은 줄만 블로그 ID로 묶음) */
   let mode = 'ref';
+  /** 블로그별 보기의 종류 필터('' = 전체). '다른 블로그 글', '이웃 관리 화면' 같은 라벨 */
+  let kind = '';
 
   function el(tag, cls, text) {
     const e = document.createElement(tag);
@@ -99,19 +101,47 @@
     return li;
   }
 
+  /** 블로그별 종류: 라벨 그대로, 단 '○○의 이웃 관리 화면'은 블로그마다 달라 '이웃 관리 화면' 하나로 묶는다. */
+  const kindOf = (d) => (BUDDY.test(d.label || '') ? '이웃 관리 화면' : d.label || '기타');
+
+  /** 종류 셀렉트를 지금 검색 결과의 줄 수로 다시 채운다. 고른 종류가 사라지면 전체로 돌아간다. */
+  function fillKinds(rows) {
+    const counts = new Map();
+    for (const { d } of rows) counts.set(kindOf(d), (counts.get(kindOf(d)) || 0) + 1);
+    if (kind && !counts.has(kind)) kind = '';
+    const select = $('r-kind');
+    select.replaceChildren();
+    const add = (value, text) => {
+      const o = el('option', null, text);
+      o.value = value;
+      o.selected = value === kind;
+      select.appendChild(o);
+    };
+    add('', '전체 (' + nf.format(rows.length) + ')');
+    for (const [k, n] of [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
+      add(k, k + ' (' + nf.format(n) + ')');
+    }
+  }
+
   /** 블로그별: '블로그 ○○' 배지가 붙은 줄만 블로그 ID로 묶어 방문수 순서로 보여 준다(유입처는 줄마다 회색 칩). */
   function renderBlogs(list, q) {
-    const groups = new Map();
+    const found = [];
     for (const r of data.referrers) {
       for (const d of r.details) {
         const id = blogOf(d);
         if (!id) continue;
         if (q && !id.toLowerCase().includes(q) && !r.name.toLowerCase().includes(q) && !matches(d, q)) continue;
-        let g = groups.get(id);
-        if (!g) groups.set(id, (g = { id, visits: 0, rows: [] }));
-        g.visits += d.visits;
-        g.rows.push({ d, ref: r.name });
+        found.push({ id, d, ref: r.name });
       }
+    }
+    fillKinds(found);
+    const groups = new Map();
+    for (const { id, d, ref } of found) {
+      if (kind && kindOf(d) !== kind) continue;
+      let g = groups.get(id);
+      if (!g) groups.set(id, (g = { id, visits: 0, rows: [] }));
+      g.visits += d.visits;
+      g.rows.push({ d, ref });
     }
     const sorted = [...groups.values()].sort((a, b) => b.visits - a.visits || a.id.localeCompare(b.id));
     const sum = sorted.reduce((a, g) => a + g.visits, 0);
@@ -119,7 +149,7 @@
       ? '다른 블로그 ' + nf.format(sorted.length) + '곳 · 방문 ' + nf.format(sum) + '회 (기간 유입의 ' + pct(data.total ? (sum * 100) / data.total : 0) + ')'
       : '';
     if (sorted.length === 0) {
-      list.appendChild(el('p', 'rf-empty', q ? '찾는 블로그가 없습니다.'
+      list.appendChild(el('p', 'rf-empty', q || kind ? '조건에 맞는 블로그가 없어요. 검색어나 종류를 바꿔 보세요.'
         : '이 기간에 다른 블로그에서 온 기록이 없습니다(상세 URL이 수집된 날만 셉니다).'));
       return;
     }
@@ -153,6 +183,7 @@
     if (!data) return;
     const q = $('r-filter').value.trim().toLowerCase();
     $('r-hide-own').closest('label').hidden = mode === 'blog'; // 블로그별에는 내 블로그 줄이 없다
+    $('r-kind').hidden = mode !== 'blog';
     if (mode === 'blog') {
       renderBlogs(list, q);
       return;
@@ -262,6 +293,7 @@
 
   $('r-filter').addEventListener('input', render);
   $('r-hide-own').addEventListener('change', render);
+  $('r-kind').addEventListener('change', (e) => { kind = e.target.value; render(); });
   $('r-toggle').addEventListener('click', () => {
     open = !open;
     $('r-toggle').textContent = open ? '모두 접기' : '모두 펼치기';
