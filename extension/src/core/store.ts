@@ -1,9 +1,10 @@
 // SQLite 저장소. Java MetricService·ReferrerDailyService의 저장 규칙을 옮겼다.
 // - 교체 저장(멱등): 그 지표의 해당 날짜(게시글별은 그 게시글 행)만 지우고 다시 넣는다.
-// - 유입경로는 날짜 단위로 유입경로와 검색어를 함께 교체하고, 오늘(집계 중) 데이터는 저장하지 않는다.
+// - 유입경로는 날짜 단위로 유입경로와 검색어(받았으면 상세 URL도)를 함께 교체하고, 오늘(집계 중) 데이터는 저장하지 않는다.
+// - 상세 URL 보충(saveUrls)은 그 날짜의 URL 행만 교체하고 유입경로·검색어는 건드리지 않는다.
 import type { MetricRow } from './metric-parser.js';
 import type { MetricStore } from './metric-job.js';
-import { mergeQueries, type RefererDay } from './referer.js';
+import { mergeQueries, mergeUrls, type RefererDay, type RefererUrlRow } from './referer.js';
 import { ALL, EMPTY_KEY, isSeries } from './specs.js';
 import type { Sql, Stmt } from './sql.js';
 import { UNAVAILABLE_PAYLOAD } from './metric-job.js';
@@ -11,6 +12,8 @@ import { UNAVAILABLE_PAYLOAD } from './metric-job.js';
 const RANK_METRICS = ['RANK_POST', 'RANK_LIKE', 'RANK_COMMENT'];
 const POST_URI = /"uri":"https?:\/\/blog\.naver\.com\/[^/"]+\/(\d+)"/;
 export const REFERER_UNIT = 'REFERER';
+/** 검색 아닌 유입처 상세 URL을 받은 날짜(유입분석 탭). 가져온 H2 데이터에는 없어 따로 보충한다. */
+export const REFERER_URL_UNIT = 'REFERER_URL';
 
 const placeholders = (n: number) => Array.from({ length: n }, () => '?').join(', ');
 
@@ -92,7 +95,7 @@ export class SqlRefererStore {
     return new Set(rows.map((r) => String(r.stat_date)));
   }
 
-  /** 그 날짜의 유입경로·검색어를 지우고 다시 넣는다(한 트랜잭션). 오늘 데이터면 저장하지 않고 false. */
+  /** 그 날짜의 유입경로·검색어(받았으면 상세 URL도)를 지우고 다시 넣는다(한 트랜잭션). 오늘 데이터면 저장하지 않고 false. */
   async save(day: RefererDay): Promise<boolean> {
     if (day.today) return false;
     const now = this.clock();
@@ -119,7 +122,40 @@ export class SqlRefererStore {
               updated_at = excluded.updated_at`,
       bind: [REFERER_UNIT, day.date, now],
     });
+    if (day.urls) stmts.push(...urlStmts(day.date, day.urls, now));
     await this.sql.tx(stmts);
     return true;
   }
+
+  /** 상세 URL 보충: 그 날짜의 URL 행만 교체하고 받은 날로 기록한다. 유입경로·검색어 행은 그대로 둔다. */
+  async saveUrls(date: string, urls: RefererUrlRow[]): Promise<void> {
+    await this.sql.tx(urlStmts(date, urls, this.clock()));
+  }
+
+  /** 상세 URL을 받은 날짜. */
+  async urlDatesWith(from: string, to: string): Promise<Set<string>> {
+    const rows = await this.sql.query(
+      "SELECT stat_date FROM collection_state WHERE unit_key = ? AND status = 'OK' AND stat_date BETWEEN ? AND ?",
+      [REFERER_URL_UNIT, from, to]);
+    return new Set(rows.map((r) => String(r.stat_date)));
+  }
+}
+
+function urlStmts(date: string, urls: RefererUrlRow[], now: string): Stmt[] {
+  const stmts: Stmt[] = [{ sql: 'DELETE FROM referrer_url_daily WHERE stat_date = ?', bind: [date] }];
+  for (const u of mergeUrls(urls)) {
+    if (u.date !== date) throw new Error('다른 날짜의 URL 행이 섞여 있습니다: ' + u.date + ' != ' + date);
+    stmts.push({
+      sql: 'INSERT INTO referrer_url_daily (stat_date, referrer_name, url, visits, ratio, collected_at) VALUES (?, ?, ?, ?, ?, ?)',
+      bind: [u.date, u.referrer, u.url, u.visits, u.ratio, now],
+    });
+  }
+  stmts.push({
+    sql: `INSERT INTO collection_state (unit_key, stat_date, status, attempts, last_error, updated_at)
+          VALUES (?, ?, 'OK', 1, NULL, ?)
+          ON CONFLICT(unit_key, stat_date) DO UPDATE SET status = 'OK', attempts = attempts + 1, last_error = NULL,
+            updated_at = excluded.updated_at`,
+    bind: [REFERER_URL_UNIT, date, now],
+  });
+  return stmts;
 }

@@ -34,7 +34,15 @@ const V1: string[] = [
   'DROP TABLE IF EXISTS poc_run',
 ];
 
-const MIGRATIONS: string[][] = [V1];
+// V2: 검색 아닌 유입처의 상세 URL(유입분석 탭). url은 원문 그대로 저장한다(표시할 때만 디코딩).
+const V2: string[] = [
+  `CREATE TABLE referrer_url_daily (
+     stat_date TEXT NOT NULL, referrer_name TEXT NOT NULL, url TEXT NOT NULL,
+     visits INTEGER NOT NULL, ratio REAL NOT NULL, collected_at TEXT NOT NULL,
+     PRIMARY KEY (stat_date, referrer_name, url))`,
+];
+
+const MIGRATIONS: string[][] = [V1, V2];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
 

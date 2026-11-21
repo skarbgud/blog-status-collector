@@ -9,6 +9,8 @@ export const REFERER_DETAIL_PATH = '/api/blog/daily/referer/total/detail';
 
 export interface RefererRow { date: string; referrer: string; searchEngine: boolean; visits: number; ratio: number }
 export interface SearchQueryRow { date: string; referrer: string; query: string; visits: number; ratio: number }
+/** 검색 아닌 유입처의 상세(URL). url은 원문 그대로다. */
+export interface RefererUrlRow { date: string; referrer: string; url: string; visits: number; ratio: number }
 export interface RefererDay {
   date: string;
   rows: RefererRow[];
@@ -17,6 +19,19 @@ export interface RefererDay {
   /** 집계 중인 오늘 데이터. 저장하지 않는다 */
   today: boolean;
   queries: SearchQueryRow[];
+  /** 검색 아닌 유입처의 상세 URL. 받지 않았으면 undefined(그 날 URL 상세는 그대로 둔다) */
+  urls?: RefererUrlRow[];
+}
+
+/** 같은 (유입처, URL)이 한 날짜에 두 번 오면 방문수와 비율을 합친다(처음 나온 순서 유지). */
+export function mergeUrls(rows: RefererUrlRow[]): RefererUrlRow[] {
+  const merged = new Map<string, RefererUrlRow>();
+  for (const r of rows) {
+    const key = r.referrer + '\u0000' + r.url;
+    const prev = merged.get(key);
+    merged.set(key, prev ? { ...prev, visits: prev.visits + r.visits, ratio: prev.ratio + r.ratio } : { ...r });
+  }
+  return [...merged.values()];
 }
 
 export class RefererParseError extends Error {}

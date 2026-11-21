@@ -3,7 +3,8 @@
 // 읽기 전용이다.
 import { addDays, isDate } from './dates.js';
 import { computeTrends, historyFrom, WINDOW_DAYS, type TrendReport } from './keyword-trends.js';
-import type { Sql } from './sql.js';
+import { describeUrl } from './referer-url.js';
+import { getSetting, type Sql } from './sql.js';
 import type { StoredStatus } from './status.js';
 
 export const DEFAULT_DAYS = 30;
@@ -50,6 +51,8 @@ export class DashboardQuery {
           intParam(params, 'lookback', DEFAULT_LOOKBACK), intParam(params, 'limit', 20)));
         case 'metrics': return ok(await this.metrics(dateParam(params, 'from'), dateParam(params, 'to')));
         case 'session': return ok(session(status));
+        case 'referrer-details': return ok(await this.referrerDetails(await this.period(params)));
+        case 'place-queries': return ok(await this.placeQueries(await this.period(params)));
         default: return { status: 404, body: { status: 404, message: '없는 API: ' + name } };
       }
     } catch (e) {
@@ -144,6 +147,127 @@ export class DashboardQuery {
       from: period.from, to: period.to, distinctQueries: sorted.length, totalVisits: total,
       truncated: sorted.length > size, items: sorted.slice(0, size),
     };
+  }
+
+  // ---- 유입분석: 유입처별 상세(URL·검색어) 전체 펼치기 ----
+
+  /** 게시글 번호 → 제목(ARTICLE_INFO 최신, 없으면 순위의 제목). */
+  private async postTitles(): Promise<Map<string, string>> {
+    const titles = new Map<string, string>();
+    const rank = await this.sql.query("SELECT payload FROM metric_row WHERE metric = 'RANK_POST' ORDER BY stat_date, rowid");
+    for (const r of rank) {
+      try {
+        const v = JSON.parse(String(r.payload)) as { uri?: string; title?: string };
+        const id = (v.uri ?? '').replace(/\/+$/, '').split('/').pop();
+        if (id && v.title) titles.set(id, v.title);
+      } catch { /* 깨진 행은 건너뛴다 */ }
+    }
+    const info = await this.sql.query("SELECT row_key, payload FROM metric_row WHERE metric = 'ARTICLE_INFO' ORDER BY stat_date, rowid");
+    for (const r of info) {
+      try {
+        const v = JSON.parse(String(r.payload)) as { title?: string };
+        if (v.title) titles.set(String(r.row_key), v.title);
+      } catch { /* 깨진 행은 건너뛴다 */ }
+    }
+    return titles;
+  }
+
+  /**
+   * 기간 안의 모든 유입처와 그 상세를 방문수 순서로 돌려준다. 검색 유입처의 상세는 검색어(search_query_daily),
+   * 그 밖은 URL(referrer_url_daily)이다. 비율은 기간 유입 합계 대비 퍼센트다(네이버 화면과 같은 분모).
+   * detailDays: 상세가 있는 날, partialDays: 그 중 상세 합이 유입처 방문수와 다른 날(일부만 수집).
+   */
+  async referrerDetails(period: { from: string; to: string }) {
+    const { from, to } = period;
+    const myBlogId = await getSetting(this.sql, 'blog_id');
+    const refRows = await this.sql.query(
+      'SELECT stat_date, referrer_name, search_engine, visits FROM referrer_daily WHERE stat_date BETWEEN ? AND ?', [from, to]);
+    const total = refRows.reduce((a, r) => a + Number(r.visits), 0);
+    const urlRows = await this.sql.query(
+      'SELECT stat_date, referrer_name, url AS text, visits FROM referrer_url_daily WHERE stat_date BETWEEN ? AND ?', [from, to]);
+    const qRows = await this.sql.query(
+      'SELECT stat_date, referrer_name, search_query AS text, visits FROM search_query_daily WHERE stat_date BETWEEN ? AND ?', [from, to]);
+    const titles = urlRows.length > 0 ? await this.postTitles() : new Map<string, string>();
+
+    interface Ref { name: string; searchEngine: boolean; visits: number; byDay: Map<string, number>;
+      details: Map<string, { kind: 'url' | 'query'; text: string; visits: number }>; detailByDay: Map<string, number> }
+    const refs = new Map<string, Ref>();
+    const ref = (name: string) => {
+      let r = refs.get(name);
+      if (!r) refs.set(name, (r = { name, searchEngine: false, visits: 0, byDay: new Map(), details: new Map(), detailByDay: new Map() }));
+      return r;
+    };
+    for (const row of refRows) {
+      const r = ref(String(row.referrer_name));
+      const v = Number(row.visits);
+      r.searchEngine ||= Number(row.search_engine) === 1;
+      r.visits += v;
+      r.byDay.set(String(row.stat_date), (r.byDay.get(String(row.stat_date)) ?? 0) + v);
+    }
+    const add = (rows: typeof urlRows, kind: 'url' | 'query') => {
+      for (const row of rows) {
+        const r = ref(String(row.referrer_name));
+        const text = String(row.text);
+        const v = Number(row.visits);
+        const d = r.details.get(kind + '\u0000' + text) ?? { kind, text, visits: 0 };
+        d.visits += v;
+        r.details.set(kind + '\u0000' + text, d);
+        const day = String(row.stat_date);
+        r.detailByDay.set(day, (r.detailByDay.get(day) ?? 0) + v);
+      }
+    };
+    add(urlRows, 'url');
+    add(qRows, 'query');
+
+    let unclassified = 0;
+    const seen = new Set<string>();
+    const referrers = [...refs.values()]
+      .sort((a, b) => b.visits - a.visits || cmp(a.name, b.name))
+      .map((r) => {
+        let partialDays = 0;
+        for (const [day, v] of r.detailByDay) if (v !== (r.byDay.get(day) ?? 0)) partialDays++;
+        const details = [...r.details.values()]
+          .sort((a, b) => b.visits - a.visits || cmp(a.text, b.text))
+          .map((d) => {
+            const base = { kind: d.kind, text: d.text, visits: d.visits, ratio: total === 0 ? 0 : (d.visits * 100) / total };
+            if (d.kind === 'query') return { ...base, label: '검색어', tags: [] as string[] };
+            const info = describeUrl(d.text, myBlogId);
+            if (!info.classified && !seen.has(d.text)) {
+              seen.add(d.text);
+              unclassified++;
+            }
+            return {
+              ...base, label: info.label, tags: info.tags, classified: info.classified,
+              placeQuery: info.placeQuery ?? null, placeId: info.placeId ?? null, postNo: info.postNo ?? null,
+              postTitle: info.postNo ? titles.get(info.postNo) ?? null : null,
+            };
+          });
+        return {
+          name: r.name, searchEngine: r.searchEngine, visits: r.visits, ratio: total === 0 ? 0 : (r.visits * 100) / total,
+          days: r.byDay.size, detailDays: r.detailByDay.size, partialDays, details,
+        };
+      });
+    return { from, to, total, referrers, unclassified };
+  }
+
+  /** 플레이스 URL에서 뽑은 검색어를 방문수 순서로 모은다(places: 그 검색어로 들어온 플레이스 번호들). */
+  async placeQueries(period: { from: string; to: string }) {
+    const myBlogId = await getSetting(this.sql, 'blog_id');
+    const rows = await this.sql.query(
+      'SELECT url, SUM(visits) AS visits FROM referrer_url_daily WHERE stat_date BETWEEN ? AND ? GROUP BY url',
+      [period.from, period.to]);
+    const by = new Map<string, { visits: number; places: Set<string> }>();
+    for (const r of rows) {
+      const info = describeUrl(String(r.url), myBlogId);
+      if (!info.placeQuery) continue;
+      const e = by.get(info.placeQuery) ?? { visits: 0, places: new Set<string>() };
+      e.visits += Number(r.visits);
+      if (info.placeId) e.places.add(info.placeId);
+      by.set(info.placeQuery, e);
+    }
+    return [...by.entries()]
+      .sort(([qa, a], [qb, b]) => b.visits - a.visits || cmp(qa, qb))
+      .map(([query, e]) => ({ query, visits: e.visits, places: [...e.places].sort() }));
   }
 
   // ---- 검색어 변화 (KeywordTrendController) ----
