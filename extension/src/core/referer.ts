@@ -2,6 +2,7 @@
 // 하루에 1(유입 합계) + 검색 유입처 수(검색어) + 검색 아닌 유입처 수(상세 URL)만큼 요청한다.
 import { isDate } from './dates.js';
 import { HttpStatusError } from './naver.js';
+import { POOL_LIMIT, runPool } from './pool.js';
 import type { JobLog, StatGetter } from './metric-job.js';
 
 export const REFERER_PATH = '/api/blog/daily/referer/total';
@@ -197,10 +198,11 @@ export function parseUrls(json: string, requested: string, referrer: string): Re
  */
 export async function fetchRefererUrls(http: StatGetter, date: string, rows: RefererRow[], size = 100,
   log: JobLog = () => {}): Promise<RefererUrlRow[] | undefined> {
-  const all: RefererUrlRow[] = [];
+  const targets = rows.filter((row) => !row.searchEngine && row.visits > 0);
+  const parts: RefererUrlRow[][] = targets.map(() => []);
   let failed = false;
-  for (const row of rows) {
-    if (row.searchEngine || row.visits <= 0) continue;
+  // 유입처마다 동시에 받고, 결과는 유입처 순서대로 합친다.
+  await runPool(targets, POOL_LIMIT, async (row, i) => {
     const label = date + ' ' + row.referrer + ' 상세 URL';
     try {
       const urls = parseUrls(await http.get(REFERER_DETAIL_PATH, detailParams(date, row.referrer, size, false), label),
@@ -209,14 +211,14 @@ export async function fetchRefererUrls(http: StatGetter, date: string, rows: Ref
       if (sum !== row.visits) {
         log('warn', '[경고] ' + label + ' 합계 ' + sum + ' != 유입처 방문수 ' + row.visits + ' (상한 size=' + size + ')');
       }
-      all.push(...urls);
+      parts[i] = urls;
     } catch (e) {
       if (!(e instanceof HttpStatusError) && !(e instanceof RefererParseError)) throw e;
       failed = true;
       log('warn', '[경고] ' + label + ' 수집 실패, 이 날의 상세 URL은 다음 회차에 다시 받습니다: ' + e.message);
     }
-  }
-  return failed ? undefined : all;
+  });
+  return failed ? undefined : parts.flat();
 }
 
 /**
@@ -227,23 +229,32 @@ export async function fetchRefererDay(http: StatGetter, date: string, querySize 
   log: JobLog = () => {}, withUrls = false): Promise<RefererDay> {
   const day = parseReferer(await http.get(REFERER_PATH, refererParams(date), date), date);
   if (day.today) return day;
-  const all: SearchQueryRow[] = [];
-  for (const row of day.rows) {
-    if (!row.searchEngine) continue;
-    const label = date + ' ' + row.referrer + ' 검색어';
-    try {
-      const queries = parseQueries(await http.get(REFERER_DETAIL_PATH, detailParams(date, row.referrer, querySize), label),
-        date, row.referrer);
-      const sum = queries.reduce((a, q) => a + q.visits, 0);
-      if (sum !== row.visits) {
-        log('warn', '[경고] ' + label + ' 합계 ' + sum + ' != 유입처 방문수 ' + row.visits + ' (상한 size=' + querySize + ')');
+  const engines = day.rows.filter((row) => row.searchEngine);
+  const parts: SearchQueryRow[][] = engines.map(() => []);
+  // 검색어와 상세 URL을 함께 동시에 받는다(실제 동시 요청 수는 StatClient가 정한다).
+  // 한쪽이 치명 오류로 멈춰도 다른 쪽이 끝난 뒤에 던진다(진행 중인 요청을 버리지 않게).
+  const [queried, fetched] = await Promise.allSettled([
+    runPool(engines, POOL_LIMIT, async (row, i) => {
+      const label = date + ' ' + row.referrer + ' 검색어';
+      try {
+        const queries = parseQueries(await http.get(REFERER_DETAIL_PATH, detailParams(date, row.referrer, querySize), label),
+          date, row.referrer);
+        const sum = queries.reduce((a, q) => a + q.visits, 0);
+        if (sum !== row.visits) {
+          log('warn', '[경고] ' + label + ' 합계 ' + sum + ' != 유입처 방문수 ' + row.visits + ' (상한 size=' + querySize + ')');
+        }
+        parts[i] = queries;
+      } catch (e) {
+        if (!(e instanceof HttpStatusError) && !(e instanceof RefererParseError)) throw e;
+        log('warn', '[경고] ' + label + ' 수집 실패, 이 유입처의 검색어는 건너뜁니다: ' + e.message);
       }
-      all.push(...queries);
-    } catch (e) {
-      if (!(e instanceof HttpStatusError) && !(e instanceof RefererParseError)) throw e;
-      log('warn', '[경고] ' + label + ' 수집 실패, 이 유입처의 검색어는 건너뜁니다: ' + e.message);
-    }
-  }
+    }),
+    withUrls ? fetchRefererUrls(http, date, day.rows, querySize, log) : Promise.resolve(undefined),
+  ]);
+  if (queried.status === 'rejected') throw queried.reason;
+  if (fetched.status === 'rejected') throw fetched.reason;
+  const urls = fetched.value;
+  const all = parts.flat();
   if (!withUrls) return { ...day, queries: all };
-  return { ...day, queries: all, urls: await fetchRefererUrls(http, date, day.rows, querySize, log) };
+  return { ...day, queries: all, urls };
 }

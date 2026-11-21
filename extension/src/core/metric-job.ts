@@ -2,10 +2,12 @@
 // - 같은 API를 쓰는 지표는 한 번의 요청으로 함께 받는다(requestKey).
 // - 시계열은 15일 창으로 거슬러 올라가고(주간은 한 번), 하루·주·월 단위는 이미 받은 날짜를 건너뛴다(force 아니면).
 // - 게시글별 지표는 순위에 나온 게시글마다 부르므로 순위를 받은 뒤 맨 마지막에 계획한다.
+// - 단계(일반 → 시간대 → 게시글) 안의 요청은 concurrency개씩 동시에 보낸다(기본 1 = Java와 같은 순서, 수집기는 6).
 // - 한 요청이 실패해도 나머지는 계속한다. 로그인 만료는 그대로 멈추고, 요청 상한에 닿으면 멈춘 뒤 다음에 이어 받는다.
 import { addDays, isoDayOfWeek, previousMonthStart } from './dates.js';
 import { MetricParseError, parseMetric, type MetricRow } from './metric-parser.js';
 import { BudgetExceededError, HttpStatusError } from './naver.js';
+import { runPool } from './pool.js';
 import { SERIES_WINDOW_DAYS, isSeries, isValue, requestKey, type MetricSpec } from './specs.js';
 
 /** 지표 저장소. 런타임은 SQLite, 테스트는 메모리 구현을 쓴다. */
@@ -69,15 +71,17 @@ export class MetricJob {
   constructor(
     private readonly store: MetricStore,
     private readonly log: JobLog = () => {},
+    private readonly concurrency = 1,
   ) {}
 
   async execute(http: StatGetter, plan: MetricPlan): Promise<MetricResult> {
     const result: MetricResult = { saved: {}, failures: 0, budgetStopped: false, pending: 0 };
     try {
-      for (const unit of await this.plainUnits(plan)) await this.fetch(http, unit, plan, result);
-      for (const unit of await this.hourUnits(plan)) await this.fetch(http, unit, plan, result);
+      const run = (units: Unit[]) => runPool(units, this.concurrency, (unit) => this.fetch(http, unit, plan, result));
+      await run(await this.plainUnits(plan));
+      await run(await this.hourUnits(plan));
       // 게시글 번호는 위에서 받은 순위에서 나오므로 그 뒤에 계획한다.
-      for (const unit of await this.postUnits(plan)) await this.fetch(http, unit, plan, result);
+      await run(await this.postUnits(plan));
     } catch (e) {
       if (e instanceof BudgetExceededError) {
         this.log('info', '[예산] ' + e.message);

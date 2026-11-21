@@ -178,7 +178,9 @@ test('하루 상한: 상한에서 멈추고, 같은 날은 요청 0회, 다음 �
   const r = await runCollection(deps(sql, srv));
   assert.equal(r.outcome, 'cap-reached');
   assert.equal(srv.urls.length, 9);
-  assert.deepEqual(refererDates(srv), ['2026-11-20', '2026-11-19', '2026-11-18', '2026-11-17']);
+  // 날짜를 동시에 진행하므로 어느 날짜까지 끝났는지는 응답 순서에 달렸다. 최신 날짜부터 시작한다는 것만 본다.
+  assert.equal(refererDates(srv)[0], '2026-11-20');
+  const saved = (await sql.query('SELECT DISTINCT stat_date AS d FROM referrer_daily')).map((x) => String(x.d));
 
   const same = await runCollection(deps(sql, srv, { now: later(3), manual: true }));
   assert.equal(same.outcome, 'cap-reached');
@@ -186,8 +188,10 @@ test('하루 상한: 상한에서 멈추고, 같은 날은 요청 0회, 다음 �
 
   const next = server();
   await runCollection(deps(sql, next, { now: later(24) }));
-  // 새 어제(11/21) 다음에는 빠진 날짜 중 가장 최근(11/16)부터
-  assert.deepEqual(refererDates(next), ['2026-11-21', '2026-11-16', '2026-11-15', '2026-11-14']);
+  // 새 어제(11/21)부터, 이미 저장된 날짜는 다시 받지 않는다
+  const nextDates = refererDates(next);
+  assert.equal(nextDates[0], '2026-11-21');
+  assert.deepEqual(nextDates.filter((d) => saved.includes(d!)), []);
 });
 
 test('도중에 로그인이 만료되면 멈추고, 그때까지 받은 날짜는 남는다', async () => {
@@ -197,8 +201,9 @@ test('도중에 로그인이 만료되면 멈추고, 그때까지 받은 날짜�
   const srv = server({ failAt: 6, failWith: () => new Response(null, { status: 401 }) });
   const r = await runCollection(deps(sql, srv));
   assert.equal(r.outcome, 'login-required');
-  assert.equal(srv.urls.length, 6);
-  assert.equal(await count(sql, 'SELECT COUNT(DISTINCT stat_date) AS n FROM referrer_daily'), 2);
+  // 401을 받은 뒤로는 새 요청을 보내지 않는다(그때 이미 보낸 요청, 최대 동시 6개는 끝까지 간다)
+  assert.ok(srv.urls.length <= 6 + 5, String(srv.urls.length));
+  assert.ok(await count(sql, 'SELECT COUNT(DISTINCT stat_date) AS n FROM referrer_daily') <= 2);
   assert.equal(await getSetting(sql, S.completeDate), null);
 });
 
@@ -208,6 +213,29 @@ test('네트워크가 끊기면 오류로 멈추고 다음 확인 때 다시 한
   const srv = server({ failAt: 3, failWith: () => { throw new TypeError('Failed to fetch'); } });
   const r = await runCollection(deps(sql, srv));
   assert.equal(r.outcome, 'error');
-  assert.equal(srv.urls.length, 2 + 4); // user-info, 하루, 그리고 실패한 요청 1 + 재시도 3
+  // user-info, 하루, 그리고 동시에 나간 요청(최대 6개)마다 1 + 재시도 3
+  assert.ok(srv.urls.length <= 2 + 6 * 4, String(srv.urls.length));
   assert.equal(await getSetting(sql, S.completeDate), null);
+});
+
+test('두 단계: 최근 7일을 먼저 받고, 나머지는 이어서 받되 같은 요청을 두 번 보내지 않는다', async () => {
+  const sql = await memoryDb();
+  await setSetting(sql, S.dailyCap, '100000');
+  const srv = server({ urlOk: true });
+  const r = await runCollection(deps(sql, srv));
+  assert.equal(r.outcome, 'done', r.message);
+  const dates = refererDates(srv);
+  assert.equal(dates.length, RANGE_DAYS);
+  assert.equal(new Set(dates).size, RANGE_DAYS, '유입경로 날짜 중복 없음');
+  assert.deepEqual([...dates.slice(0, 7)].sort().reverse(),
+    ['2026-11-20', '2026-11-19', '2026-11-18', '2026-11-17', '2026-11-16', '2026-11-15', '2026-11-14']);
+  // 시계열(조회수)은 처음이라 90일을 15일 창 6번으로, 창이 겹치지 않게 받는다
+  const views = srv.urls.filter((u) => u.pathname === '/api/blog/visit/cv').map((u) => u.searchParams.get('startDate'));
+  assert.equal(views.length, 6);
+  assert.equal(new Set(views).size, 6);
+  assert.equal(views[0], '2026-11-20');
+  // 시간대·게시글별 추이는 1단계에서 받지 않는다: 첫 시간대 요청은 마지막 유입경로 날짜보다 뒤에 나온다
+  const firstHour = srv.urls.findIndex((u) => u.pathname === '/api/blog/user/hour/hourCv');
+  const firstOld = srv.urls.findIndex((u) => u.pathname === '/api/blog/daily/referer/total' && u.searchParams.get('startDate') === '2026-11-13');
+  assert.ok(firstHour > firstOld, firstHour + ' > ' + firstOld);
 });

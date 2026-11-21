@@ -69,8 +69,10 @@ export function parseRetryAfterMs(header: string | null): number {
 
 export interface StatClientOptions {
   maxRequests: number;
-  minDelayMs?: number;
-  maxDelayMs?: number;
+  /** 동시에 보내는 요청 수(기본 6, 2026-11-21 사용자 결정). 429를 받으면 그 회차 동안 절반으로 줄인다 */
+  maxConcurrent?: number;
+  /** 요청 시작 사이 최소 간격(기본 0) */
+  minGapMs?: number;
   /** 429·502·503·504·타임아웃·네트워크 오류 재시도 횟수(Java app.collect.max-retries) */
   maxRetries?: number;
   baseBackoffMs?: number;
@@ -87,7 +89,8 @@ const RETRY_STATUS = new Set([429, 502, 503, 504]);
 
 /**
  * 한 회차 동안 쓰는 클라이언트. 회차마다 새로 만든다.
- * - 회차 첫 요청을 빼고 새 요청 앞마다 1~2초 쉰다(재시도는 백오프로 대신한다).
+ * - 동시에 최대 maxConcurrent(기본 6)개를 보내고, 요청 사이 간격은 minGapMs(기본 0)다(2026-11-21 1~2초 직렬에서 바꿈).
+ * - 429를 받으면 모든 요청이 Retry-After(없으면 백오프)만큼 함께 쉬고, 그 회차의 동시 수를 절반(최소 1)으로 줄인다.
  * - 재시도를 포함한 실제 요청 수를 상한으로 센다.
  * - 429(Retry-After 우선)·502·503·504·타임아웃·네트워크 오류는 백오프 후 재시도한다.
  *   HTTP 상태는 재시도를 다 써도 그 상태를 돌려주고(그 요청만 실패), 네트워크 오류는 회차를 막는다(오프라인).
@@ -97,8 +100,11 @@ export class StatClient {
   private used = 0;
   private lastAt = 0;
   private blocked: string | null = null;
-  private readonly minDelayMs: number;
-  private readonly maxDelayMs: number;
+  private inFlight = 0;
+  private readonly waiters: (() => void)[] = [];
+  private concurrency: number;
+  private pauseUntil = 0;
+  private readonly minGapMs: number;
   private readonly maxRetries: number;
   private readonly baseBackoffMs: number;
   private readonly capBackoffMs: number;
@@ -109,8 +115,8 @@ export class StatClient {
   private readonly log: (level: 'info' | 'warn', message: string) => void;
 
   constructor(private readonly opts: StatClientOptions) {
-    this.minDelayMs = opts.minDelayMs ?? 1000;
-    this.maxDelayMs = opts.maxDelayMs ?? 2000;
+    this.concurrency = Math.max(1, Math.floor(opts.maxConcurrent ?? 6));
+    this.minGapMs = Math.max(0, opts.minGapMs ?? 0);
     this.maxRetries = opts.maxRetries ?? 3;
     this.baseBackoffMs = opts.baseBackoffMs ?? 1000;
     this.capBackoffMs = opts.capBackoffMs ?? 30_000;
@@ -129,6 +135,11 @@ export class StatClient {
     return this.opts.maxRequests;
   }
 
+  /** 지금 허용된 동시 요청 수(429를 받으면 줄어든다). */
+  get maxConcurrent(): number {
+    return this.concurrency;
+  }
+
   /** 200 응답 본문. 200이 아니면 HttpStatusError(만료는 SessionExpiredError). */
   async get(path: string, params: Record<string, string> = {}, label = path): Promise<string> {
     const res = await this.request(path, params, label);
@@ -139,7 +150,15 @@ export class StatClient {
   async request(path: string, params: Record<string, string> = {}, label = path): Promise<StatResponse> {
     const url = statUrl(path, params);
     if (this.blocked) throw new ClientBlockedError(this.blocked);
-    await this.pace();
+    await this.enter();
+    try {
+      return await this.attempts(url, label);
+    } finally {
+      this.leave();
+    }
+  }
+
+  private async attempts(url: URL, label: string): Promise<StatResponse> {
     for (let attempt = 0; ; attempt++) {
       this.acquire();
       let failure: string;
@@ -158,11 +177,13 @@ export class StatClient {
       if (attempt >= this.maxRetries) {
         if (last) return last; // 그 요청만 실패로 처리하고 수집은 계속한다
         this.blocked = failure;
+        this.wakeAll();
         throw new ClientBlockedError(label + ' 수집 실패: 재시도 ' + this.maxRetries + '회 소진 (' + failure + ')');
       }
       const delay = retryAfter >= 0
         ? Math.min(retryAfter, this.capBackoffMs)
         : backoffMs(attempt, this.baseBackoffMs, this.capBackoffMs, this.random());
+      if (last?.status === 429) this.slowDown(delay);
       this.log('warn', '[재시도] ' + label + ' ' + failure + ' → ' + delay + 'ms 후 (' + (attempt + 1) + '/' + this.maxRetries + ')');
       await this.sleep(delay);
     }
@@ -206,16 +227,52 @@ export class StatClient {
     return { status: res.status, body: res.status === 200 ? await res.text() : '', retryAfter: res.headers.get('retry-after') };
   }
 
-  /** 첫 요청 앞에는 지연을 두지 않고, 이후에는 직전 요청 시작부터 1~2초가 지나야 보낸다. */
-  private async pace(): Promise<void> {
-    if (this.lastAt === 0) return;
-    const wait = this.minDelayMs + this.random() * (this.maxDelayMs - this.minDelayMs);
-    const remain = this.lastAt + wait - Date.now();
-    if (remain > 0) await this.sleep(remain);
+  /**
+   * 동시 슬롯을 잡는다. 슬롯이 없으면 다른 요청이 끝날 때까지 기다리고, 429로 함께 쉬는 중이거나
+   * 요청 간격(minGapMs)이 안 지났으면 그만큼 기다린 뒤 보낸다. 막힌 회차면 기다리던 요청도 같은 오류로 끝난다.
+   */
+  private async enter(): Promise<void> {
+    while (this.inFlight >= this.concurrency) {
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+      if (this.blocked) throw new ClientBlockedError(this.blocked);
+    }
+    this.inFlight++;
+    const now = Date.now();
+    const gap = this.lastAt === 0 ? 0 : this.lastAt + this.minGapMs - now;
+    const wait = Math.max(this.pauseUntil - now, gap);
+    if (wait > 0) {
+      try {
+        await this.sleep(wait);
+      } catch (e) {
+        this.leave();
+        throw e;
+      }
+    }
+  }
+
+  private leave(): void {
+    this.inFlight--;
+    this.waiters.shift()?.();
+  }
+
+  /** 429: 새 요청 전부가 delay만큼 함께 쉬고, 이 회차의 동시 수를 절반(최소 1)으로 줄인다. */
+  private slowDown(delay: number): void {
+    this.pauseUntil = Math.max(this.pauseUntil, Date.now() + delay);
+    const next = Math.max(1, Math.floor(this.concurrency / 2));
+    if (next < this.concurrency) {
+      this.log('warn', '[감속] 429를 받아 동시 요청을 ' + this.concurrency + ' → ' + next + '개로 줄입니다.');
+      this.concurrency = next;
+    }
+  }
+
+  /** 막힌 회차에서 슬롯을 기다리던 요청을 모두 깨워 같은 오류로 끝나게 한다. */
+  private wakeAll(): void {
+    for (const w of this.waiters.splice(0)) w();
   }
 
   private expire(reason: string): SessionExpiredError {
     this.blocked = '로그인 만료: ' + reason;
+    this.wakeAll();
     return new SessionExpiredError('로그인이 필요합니다 (' + reason + ')');
   }
 }

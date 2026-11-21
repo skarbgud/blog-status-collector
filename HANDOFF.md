@@ -57,6 +57,12 @@
 - 수집 범위 `RANGE_DAYS` 30 → **90일**(`extension/src/core/collector.ts`). 다음 회차에 빠진 60일을 한 번 채움(요청 약 3배, 어림 2,000회). 대시보드 기본 보기는 30일 그대로(사이드바 "90일" 버튼).
 - 테스트: `cd extension && npm test` → **140건 통과**(2026-11-21).
 
+### 4.4 수집 속도 (브랜치 feature/fast-collect)
+- 확장은 배포하지 않고 본인만 쓰기로 함(2026-11-21). 그래서 `StatClient`를 동시 6개·간격 없음으로 바꾸고 429면 공동 감속(동시 수 절반).
+- 수집 두 단계: 최근 7일(시간대·게시글별 추이 제외) → 나머지 기간과 추이. `collector.ts` `runRound`, `planRound(..., { recentDays, firstTime, rest })`, 도우미 `core/pool.ts`.
+- `MetricJob`은 동시 수 인자(기본 1 = Java 골든과 같은 순서, 수집기는 6).
+- 범위 밖으로 남긴 것: ① 대시보드가 안 쓰는 중복 요청 제거(REFERER_SEARCH/SITE, HOUR_TREND는 HOUR로 계산 가능) ② 시간대·게시글별 추이가 매일 90일치를 다시 받는 것으로 보이는 문제(`metric-job.ts` hourUnits/postUnits가 `to` 날짜 키로만 건너뜀, `run_log`로 확인 필요) ③ `raw_response`를 읽는 개발용 재생기 ④ WEEK/MONTH 단위 ⑤ 크리에이터 어드바이저 API(`creator-advisor.naver.com/api/v6/...`, 범위 지정 가능, 요청 서명 헤더 `x-ca-sig`가 필수인지 미확인 — 필수면 약관상 쓰지 않음).
+
 ## 5. 확인하지 못한 것 / 다음 할 일 (우선순위 순)
 1. **Netlify 함수 배포 확인**: 함수가 들어간 배포를 로컬에서 esbuild로 묶어 보지 못했다(권한 거부). 배포 로그에 Functions `share`, `share-upload`, `share-sweep`가 있는지, 실제로 공유 만들기 → 휴대폰 카톡으로 열기가 되는지 확인. `.ts` 확장자 import(`../../src/core/share-api.ts`)가 Netlify 번들러에서 문제면 경로/확장자를 조정.
 2. **IP당 rateLimit**은 배포 환경에서만 동작해 로컬 미확인.

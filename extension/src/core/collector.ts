@@ -6,6 +6,9 @@
 //      상세 URL만 없는 날짜(가져온 H2 데이터, URL 수집 전에 받은 날)는 저장된 유입처 목록으로 URL만 보충한다
 //   2) 지표 시계열: 처음이면 90일(15일 창 6번), 이후에는 어제를 포함한 창 1번(늦게 확정된 값도 덮어쓴다)
 //   3) 나머지 지표: 받지 않은 날짜·시간대·게시글(MetricJob)
+// 두 단계로 돈다(2026-11-21): 1단계는 최근 QUICK_DAYS일만(시간대별·게시글별 추이 제외) 받아 대시보드를 먼저 쓸 수 있게 하고,
+// 2단계에서 나머지 기간과 시간대·게시글별 추이를 채운다. 2단계는 이미 받은 날짜를 건너뛰므로 1단계분을 다시 받지 않는다.
+// 요청은 StatClient가 동시 6개까지 보낸다(날짜·유입처·지표 단위를 동시에 진행).
 // "지금 수집"(refetchDays)은 여기에 더해 최근 N일(기본 어제 하루)을 이미 있어도 다시 받아 날짜 단위로 덮어쓴다.
 // 행 단위 upsert가 아니라 날짜 단위 교체인 이유: 네이버가 다시 집계해 사라진 유입처·검색어 행이 남지 않게 하려고.
 // 다시 받을 때 집계 전 빈 값이 오면 확정된 기존 값은 지우지 않는다(keepOnPending).
@@ -16,15 +19,18 @@ import {
   BudgetExceededError, ClientBlockedError, HttpStatusError, SessionExpiredError, USER_INFO_PATH,
   buildQuery, kstDate, kstHour, parseBlogId, type StatClient,
 } from './naver.js';
-import { ALL, isSeries, type MetricSpec } from './specs.js';
+import { POOL_LIMIT, runPool } from './pool.js';
+import { ALL, SERIES_WINDOW_DAYS, isSeries, type MetricSpec } from './specs.js';
 import { deleteSetting, getSetting, setSetting, type Sql } from './sql.js';
 import { SqlMetricStore, SqlRefererStore } from './store.js';
 
-/** 하루 요청 상한. 0 이하면 상한 없음(기본, 2026-11-21 사용자 결정). 요청 사이 1~2초와 401/403 중단은 그대로다. */
+/** 하루 요청 상한. 0 이하면 상한 없음(기본, 2026-11-21 사용자 결정). 동시 6개·401/403 중단·429 공동 감속은 StatClient가 한다. */
 export const DEFAULT_DAILY_CAP = 0;
 export const hasCap = (cap: number) => Number.isFinite(cap) && cap > 0;
 /** 저장 범위(어제부터 거슬러). 늘리면 다음 회차에 빠진 날짜로 보고 한 번 채운다. */
 export const RANGE_DAYS = 90;
+/** 1단계(먼저 받는) 범위. 이 기간을 다 받으면 대시보드를 쓸 수 있다. */
+export const QUICK_DAYS = 7;
 /** 네이버가 어제분(순방문자·시간대)을 확정하는 시각. 2026-11-21 02:36엔 0, 03:20대엔 확정돼 있었다. */
 export const READY_HOUR_KST = 4;
 export const LOGIN_RETRY_MS = 6 * 3600_000;
@@ -162,12 +168,37 @@ async function collect(deps: CollectorDeps, client: StatClient, today: string, l
   }
 
   const http = recording(client, sql);
-  const round = await planRound(sql, today, deps.refetchDays ?? 0);
-  const { to } = round;
+  const store = new SqlMetricStore(sql);
+  const repaired = await store.repairMarkers();
+  if (repaired > 0) log('info', '[정리] 시계열 지표에 잘못 남은 조회 불가 표시 ' + repaired + '행을 지웠습니다.');
+  const firstTime = await isFirstTime(sql);
+  const refetchDays = deps.refetchDays ?? 0;
+  // 1단계: 최근 QUICK_DAYS일(다시 받기 포함). 2단계: 나머지 기간과 시간대·게시글별 추이.
+  const quick = await planRound(sql, today, refetchDays, { recentDays: QUICK_DAYS, firstTime });
+  let pending = await runRound(sql, http, quick, log, report);
+  log('info', '[1단계] 최근 ' + QUICK_DAYS + '일을 받았습니다. 대시보드를 새로고침하면 볼 수 있습니다. 나머지 기간을 이어서 받습니다.');
+  const rest = await planRound(sql, today, 0, { firstTime, rest: true });
+  pending += await runRound(sql, http, rest, log, report);
+  const { to } = rest;
+  const round = { refetchFrom: quick.refetchFrom };
 
+  const failures = report.failures > 0 ? ' 실패 ' + report.failures + '건은 내일 다시 받습니다.' : '';
+  if (pending > 0) {
+    finish('partial', '네이버가 아직 집계하지 않은 값 ' + pending + '건은 다음 확인 때 다시 받습니다.' + failures);
+    return;
+  }
+  await setSetting(sql, S.completeDate, today);
+  await setSetting(sql, S.missingAfter, today + '|' + (await missingWork(sql, today)));
+  const redone = round.refetchFrom === null ? ''
+    : ' ' + (round.refetchFrom === to ? '어제' : round.refetchFrom + ' ~ ' + to) + '는 다시 받아 덮어썼습니다.';
+  finish('done', '어제(' + to + ')까지 받았습니다.' + redone + failures);
+}
+
+/** 계획 하나를 실행한다: 유입경로·검색어·상세 URL(날짜 동시) → 지표(단계 안 동시). 집계 전으로 미룬 수를 돌려준다. */
+async function runRound(sql: Sql, http: StatGetter, round: Round, log: JobLog, report: RunReport): Promise<number> {
   // 1) 유입경로·검색어(다시 받는 날짜는 있어도 받아 날짜 단위로 교체)
   const referers = new SqlRefererStore(sql);
-  for (const d of round.refererDates) {
+  await runPool(round.refererDates, POOL_LIMIT, async (d) => {
     try {
       const day = await fetchRefererDay(http, d, 100, log, true);
       if (await referers.save(day)) {
@@ -180,21 +211,18 @@ async function collect(deps: CollectorDeps, client: StatClient, today: string, l
       report.failures++;
       log('warn', '[경고] ' + d + ' 유입경로 수집 실패, 건너뜁니다: ' + e.message);
     }
-  }
+  });
 
   // 1-2) 상세 URL 보충: 유입 합계는 다시 받지 않고 저장된 유입처 목록을 쓴다. 유입경로·검색어 행은 건드리지 않는다.
-  for (const d of round.urlDates) {
+  await runPool(round.urlDates, POOL_LIMIT, async (d) => {
     const urls = await fetchRefererUrls(http, d, await storedReferers(sql, d), 100, log);
-    if (!urls) { report.failures++; continue; }
+    if (!urls) { report.failures++; return; }
     await referers.saveUrls(d, urls);
     report.saved.REFERER_URL = (report.saved.REFERER_URL ?? 0) + urls.length;
-  }
+  });
 
-  // 2)·3) 지표
-  const store = new SqlMetricStore(sql);
-  const repaired = await store.repairMarkers();
-  if (repaired > 0) log('info', '[정리] 시계열 지표에 잘못 남은 조회 불가 표시 ' + repaired + '행을 지웠습니다.');
-  const job = new MetricJob(store, log);
+  // 2)·3) 지표. 계획끼리는 순서가 있어(다시 받기 → 빠진 것 채우기) 차례로 돈다.
+  const job = new MetricJob(new SqlMetricStore(sql), log, POOL_LIMIT);
   let pending = 0;
   for (const plan of round.plans) {
     const r = await job.execute(http, plan);
@@ -203,17 +231,21 @@ async function collect(deps: CollectorDeps, client: StatClient, today: string, l
     pending += r.pending;
     if (r.budgetStopped) throw new BudgetExceededError('상한');
   }
+  return pending;
+}
 
-  const failures = report.failures > 0 ? ' 실패 ' + report.failures + '건은 내일 다시 받습니다.' : '';
-  if (pending > 0) {
-    finish('partial', '네이버가 아직 집계하지 않은 값 ' + pending + '건은 다음 확인 때 다시 받습니다.' + failures);
-    return;
-  }
-  await setSetting(sql, S.completeDate, today);
-  await setSetting(sql, S.missingAfter, today + '|' + (await missingWork(sql, today)));
-  const redone = round.refetchFrom === null ? ''
-    : ' ' + (round.refetchFrom === to ? '어제' : round.refetchFrom + ' ~ ' + to) + '는 다시 받아 덮어썼습니다.';
-  finish('done', '어제(' + to + ')까지 받았습니다.' + redone + failures);
+/** 시계열을 한 번도 받지 않았는지(처음이면 시계열을 전체 기간으로 받는다). */
+async function isFirstTime(sql: Sql): Promise<boolean> {
+  return (await sql.query("SELECT 1 FROM metric_row WHERE metric = 'VIEWS' LIMIT 1")).length === 0;
+}
+
+export interface RoundOptions {
+  /** 있으면 어제부터 이 일수만 계획한다(1단계). 시간대·게시글별 추이는 "빠진 것 채우기"에서 뺀다 */
+  recentDays?: number;
+  /** 시계열을 처음 받는지. 두 단계가 같은 판단을 쓰도록 수집 시작 때 한 번 정해 넘긴다 */
+  firstTime?: boolean;
+  /** 2단계: 시계열은 처음일 때만, 1단계가 받은 최신 창 이전부터 받는다 */
+  rest?: boolean;
 }
 
 export interface Round {
@@ -229,9 +261,10 @@ export interface Round {
 }
 
 /** 이번 회차에 받을 것. 수집과 예상 요청 수 계산이 같은 계획을 쓴다. */
-export async function planRound(sql: Sql, today: string, refetchDays: number): Promise<Round> {
+export async function planRound(sql: Sql, today: string, refetchDays: number, opts: RoundOptions = {}): Promise<Round> {
   const to = addDays(today, -1);
-  const from = addDays(to, -(RANGE_DAYS - 1));
+  const full = addDays(to, -(RANGE_DAYS - 1));
+  const from = opts.recentDays !== undefined ? addDays(to, -(Math.max(1, opts.recentDays) - 1)) : full;
   const days = Math.min(Math.max(Math.floor(refetchDays) || 0, 0), REFETCH_MAX_DAYS);
   const refetchFrom = days > 0 ? addDays(to, -(days - 1)) : null;
 
@@ -249,12 +282,20 @@ export async function planRound(sql: Sql, today: string, refetchDays: number): P
 
   const plainSeries = (s: MetricSpec) => isSeries(s) && !s.perPost && !s.perHour;
   const others = ALL.filter((s) => !plainSeries(s));
-  const firstTime = (await sql.query("SELECT 1 FROM metric_row WHERE metric = 'VIEWS' LIMIT 1")).length === 0;
-  // 시계열은 매번 어제를 포함한 15일 창을 받아 덮어쓴다(다시 받는 범위도 그 창 안에 있다).
-  const plans: MetricPlan[] = [{ specs: ALL.filter(plainSeries), from: firstTime ? from : (refetchFrom ?? to), to, force: false, today }];
+  const firstTime = opts.firstTime ?? (await isFirstTime(sql));
+  const plans: MetricPlan[] = [];
+  if (!opts.rest) {
+    // 시계열은 매번 어제를 포함한 15일 창을 받아 덮어쓴다(다시 받는 범위도 그 창 안에 있다).
+    plans.push({ specs: ALL.filter(plainSeries), from: firstTime ? from : (refetchFrom ?? to), to, force: false, today });
+  } else if (firstTime) {
+    // 2단계: 1단계가 받은 최신 창(어제까지 15일) 이전만 받는다.
+    const before = addDays(to, -SERIES_WINDOW_DAYS);
+    if (before >= from) plans.push({ specs: ALL.filter(plainSeries), from, to: before, force: false, today });
+  }
   // 다시 받기를 먼저 해서, 뒤의 "빠진 것 채우기"가 같은 날짜를 또 받지 않게 한다.
   if (refetchFrom !== null) plans.push({ specs: others, from: refetchFrom, to, force: true, today, keepOnPending: true });
-  plans.push({ specs: others, from, to, force: false, today });
+  const fill = opts.recentDays !== undefined ? others.filter((s) => !s.perPost && !s.perHour) : others;
+  plans.push({ specs: fill, from, to, force: false, today });
   return { from, to, refetchFrom, refererDates, urlDates, plans };
 }
 
