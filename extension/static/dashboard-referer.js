@@ -6,9 +6,13 @@
   const nf = new Intl.NumberFormat('ko-KR');
   const pct = (v) => v.toFixed(2) + '%';
   const OWN = new Set(['내 글에서 이동', '내 블로그 글 목록', '내 블로그 홈', '내 이웃 관리 화면']);
+  const BUDDY = /^(.+)의 이웃 관리 화면$/;
+  const BLOG_ID = /^[A-Za-z0-9_-]+$/;
   let data = null;
   let seq = 0;
   let open = true;
+  /** 'ref' 유입처별 | 'blog' 블로그별('블로그 ○○' 배지가 붙은 줄만 블로그 ID로 묶음) */
+  let mode = 'ref';
 
   function el(tag, cls, text) {
     const e = document.createElement(tag);
@@ -55,14 +59,23 @@
     return b;
   }
 
-  function row(d) {
+  /** 다른 블로그 ID: '블로그 ○○' 배지, 또는 '○○의 이웃 관리 화면'. 없으면 null */
+  function blogOf(d) {
+    for (const t of d.tags || []) if (t.startsWith('블로그 ')) return t.slice(4);
+    const m = BUDDY.exec(d.label || '');
+    return m && m[1] !== '알 수 없는 블로그' ? m[1] : null;
+  }
+
+  function row(d, refName) {
     const li = el('li', 'rf-row');
     li.append(el('span', 'rf-v', nf.format(d.visits)), el('span', 'rf-p', pct(d.ratio)));
     const main = el('div', 'rf-main');
     const head = el('div');
     head.appendChild(el('span', 'rf-label', d.label));
+    if (refName) head.appendChild(el('span', 'rf-chip ref', refName));
     if (d.postTitle) head.appendChild(el('span', 'rf-chip', d.postTitle));
-    for (const t of d.tags || []) head.appendChild(el('span', 'rf-chip', t));
+    // 블로그별 보기에서는 묶음 머리에 블로그 ID가 있으므로 같은 배지를 줄마다 반복하지 않는다
+    for (const t of d.tags || []) if (!(refName && t.startsWith('블로그 '))) head.appendChild(el('span', 'rf-chip', t));
     if (d.placeQuery) head.appendChild(el('span', 'rf-chip q', '검색어: ' + d.placeQuery));
     main.appendChild(head);
     if (d.kind === 'url') {
@@ -86,11 +99,64 @@
     return li;
   }
 
+  /** 블로그별: '블로그 ○○' 배지가 붙은 줄만 블로그 ID로 묶어 방문수 순서로 보여 준다(유입처는 줄마다 회색 칩). */
+  function renderBlogs(list, q) {
+    const groups = new Map();
+    for (const r of data.referrers) {
+      for (const d of r.details) {
+        const id = blogOf(d);
+        if (!id) continue;
+        if (q && !id.toLowerCase().includes(q) && !r.name.toLowerCase().includes(q) && !matches(d, q)) continue;
+        let g = groups.get(id);
+        if (!g) groups.set(id, (g = { id, visits: 0, rows: [] }));
+        g.visits += d.visits;
+        g.rows.push({ d, ref: r.name });
+      }
+    }
+    const sorted = [...groups.values()].sort((a, b) => b.visits - a.visits || a.id.localeCompare(b.id));
+    const sum = sorted.reduce((a, g) => a + g.visits, 0);
+    $('r-foot').textContent = sorted.length
+      ? '다른 블로그 ' + nf.format(sorted.length) + '곳 · 방문 ' + nf.format(sum) + '회 (기간 유입의 ' + pct(data.total ? (sum * 100) / data.total : 0) + ')'
+      : '';
+    if (sorted.length === 0) {
+      list.appendChild(el('p', 'rf-empty', q ? '찾는 블로그가 없습니다.'
+        : '이 기간에 다른 블로그에서 온 기록이 없습니다(상세 URL이 수집된 날만 셉니다).'));
+      return;
+    }
+    for (const g of sorted) {
+      const box = el('details', 'rf-ref');
+      box.open = open;
+      const s = el('summary');
+      const num = el('span', 'rf-num');
+      num.append(el('b', null, nf.format(g.visits)),
+        document.createTextNode(' · ' + pct(data.total ? (g.visits * 100) / data.total : 0) + ' · ' + g.rows.length + '줄'));
+      s.append(el('span', 'rf-name', g.id), num);
+      if (BLOG_ID.test(g.id)) {
+        const a = el('a', 'rf-ext', '블로그 열기');
+        a.href = 'https://blog.naver.com/' + encodeURIComponent(g.id);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        s.appendChild(a);
+      }
+      box.appendChild(s);
+      const ol = el('ol', 'rf-rows');
+      g.rows.sort((a, b) => b.d.visits - a.d.visits || a.d.text.localeCompare(b.d.text));
+      for (const { d, ref } of g.rows) ol.appendChild(row(d, ref));
+      box.appendChild(ol);
+      list.appendChild(box);
+    }
+  }
+
   function render() {
     const list = $('r-list');
     list.replaceChildren();
     if (!data) return;
     const q = $('r-filter').value.trim().toLowerCase();
+    $('r-hide-own').closest('label').hidden = mode === 'blog'; // 블로그별에는 내 블로그 줄이 없다
+    if (mode === 'blog') {
+      renderBlogs(list, q);
+      return;
+    }
     const hideOwn = $('r-hide-own').checked;
     let shownRefs = 0;
     for (const r of data.referrers) {
@@ -202,5 +268,10 @@
     document.querySelectorAll('#r-list details').forEach((d) => { d.open = open; });
   });
   $('r-csv').addEventListener('click', exportCsv);
+  document.querySelectorAll('#r-mode button').forEach((b) => b.addEventListener('click', () => {
+    mode = b.dataset.v;
+    document.querySelectorAll('#r-mode button').forEach((x) => x.classList.toggle('active', x === b));
+    render();
+  }));
   window.addEventListener('blog:range', (e) => load(e.detail));
 })();
