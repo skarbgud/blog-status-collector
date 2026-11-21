@@ -429,16 +429,26 @@
       td(v.best < 1e9 ? v.best + '위' : '-')]), '이 기간에 재생 순위에 오른 동영상이 없습니다.', 3);
   }
 
-  /** 서비스 평균·상위 그룹 평균과의 월간 비교. 내 값은 조회 기간 기준이다. */
+  /**
+   * 서비스 평균·상위 그룹 평균과의 월간 비교. 네이버 값이 한 달 기준이라 내 값도 같은 달로 계산한다
+   * (전에는 조회 기간 합계라 90일을 고르면 내 값만 3배로 부풀었다). 그 달 전체가 조회 기간에 없으면 '-'로 둔다.
+   */
   function renderUpper(view) {
     const items = view.items.filter((i) => i.metric === 'UPPER_GROUP');
     const rows = new Map(items.map((i) => [i.key, i.values]));
-    const month = items.length ? items[0].date : null;
-    $('m-up-sub').textContent = month ? month.slice(0, 7).replace('-', '년 ') + '월 기준' : '';
-    const views = sum([...series(view.items, 'VIEWS', 'total').values()]);
-    const visits = sum([...series(view.items, 'VISITS', 'visit').values()]);
-    const durArr = [...series(view.items, 'DURATION', 'total').values()].filter((v) => v > 0);
-    const mine = { cv: views, visit: visits, uv: null, duration: durArr.length ? sum(durArr) / durArr.length : null };
+    const month = items.length ? items[0].date.slice(0, 7) : null;
+    $('m-up-sub').textContent = month ? month.replace('-', '년 ') + '월 기준' : '';
+    const inMonth = (m) => new Map([...m.entries()].filter(([d]) => month && d.startsWith(month)));
+    const monthDays = month ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate() : 0;
+    const viewsM = inMonth(series(view.items, 'VIEWS', 'total'));
+    const visitsM = inMonth(series(view.items, 'VISITS', 'visit'));
+    const full = viewsM.size === monthDays && monthDays > 0;
+    const durArr = [...inMonth(series(view.items, 'DURATION', 'total')).values()].filter((v) => v > 0);
+    const mine = full
+      ? { cv: sum([...viewsM.values()]), visit: visitsM.size === monthDays ? sum([...visitsM.values()]) : null, uv: null,
+        duration: durArr.length ? sum(durArr) / durArr.length : null }
+      : { cv: null, visit: null, uv: null, duration: null };
+    $('m-up-hint').textContent = month && !full ? '내 블로그 값은 ' + month.replace('-', '년 ') + '월 전체가 조회 기간에 들어 있어야 계산됩니다(지금 ' + viewsM.size + '/' + monthDays + '일).' : '';
     const avgUser = rows.get('value') || {};
     const fmt = (key, v) => (v == null ? '-' : key === 'duration' ? fmtDur(v) : nf.format(Math.round(v * 10) / 10));
     const labels = [['cv', '조회수'], ['uv', '순방문자'], ['visit', '방문횟수'], ['duration', '평균 사용시간']];

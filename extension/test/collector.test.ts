@@ -6,6 +6,8 @@ import { memoryDb, type NodeSql } from './node-sql.js';
 import { RANGE_DAYS, S, runCollection, type CollectorDeps } from '../src/core/collector.js';
 import { StatClient } from '../src/core/naver.js';
 import { getSetting, setSetting } from '../src/core/sql.js';
+import { SqlMetricStore } from '../src/core/store.js';
+import { gaps } from '../src/core/collector.js';
 
 const NOW = new Date('2026-11-21T01:00:00Z'); // KST 11/21 10:00 → 어제 11/20, 범위 10/22~11/20
 const later = (h: number, base = NOW) => new Date(base.getTime() + h * 3600_000);
@@ -238,4 +240,25 @@ test('두 단계: 최근 7일을 먼저 받고, 나머지는 이어서 받되 �
   const firstHour = srv.urls.findIndex((u) => u.pathname === '/api/blog/user/hour/hourCv');
   const firstOld = srv.urls.findIndex((u) => u.pathname === '/api/blog/daily/referer/total' && u.searchParams.get('startDate') === '2026-11-13');
   assert.ok(firstHour > firstOld, firstHour + ' > ' + firstOld);
+});
+
+test('빈 구간: 날짜 집합에서 빠진 연속 구간을 최신부터 돌려준다', () => {
+  const have = new Set(['2026-11-20', '2026-11-19', '2026-11-16']);
+  assert.deepEqual(gaps('2026-11-13', '2026-11-20', have), [['2026-11-17', '2026-11-18'], ['2026-11-13', '2026-11-15']]);
+  assert.deepEqual(gaps('2026-11-19', '2026-11-20', have), []);
+});
+
+test('보충: 시계열이 최근 30일만 있으면 비어 있는 과거 60일을 15일 창으로 채운다', async () => {
+  const sql = await memoryDb();
+  await setSetting(sql, S.dailyCap, '100000');
+  const rows = [];
+  for (let d = new Date('2026-10-22T00:00:00Z'); d <= new Date('2026-11-20T00:00:00Z'); d = new Date(d.getTime() + 86_400_000)) {
+    rows.push({ statDate: d.toISOString().slice(0, 10), metric: 'VIEWS', rowKey: 'all', payload: '{"total":1}' });
+  }
+  await new SqlMetricStore(sql).replace('VIEWS', rows, null);
+  const srv = server({ urlOk: true });
+  await runCollection(deps(sql, srv));
+  const views = srv.urls.filter((u) => u.pathname === '/api/blog/visit/cv').map((u) => u.searchParams.get('startDate'));
+  // 1단계 최신 창 1번 + 빈 구간(08/23~10/21)을 그 끝부터 15일씩
+  assert.deepEqual(views, ['2026-11-20', '2026-10-21', '2026-10-06', '2026-09-21', '2026-09-06']);
 });

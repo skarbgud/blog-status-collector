@@ -179,6 +179,13 @@ async function collect(deps: CollectorDeps, client: StatClient, today: string, l
   log('info', '[1단계] 최근 ' + QUICK_DAYS + '일을 받았습니다. 대시보드를 새로고침하면 볼 수 있습니다. 나머지 기간을 이어서 받습니다.');
   const rest = await planRound(sql, today, 0, { firstTime, rest: true });
   pending += await runRound(sql, http, rest, log, report);
+  // 3단계: 시계열·시간대·게시글별 추이에서 비어 있는 날짜 구간을 채운다(범위를 30→90일로 늘린 뒤 남은 과거 등).
+  // 2단계가 받은 것을 보고 계획해야 중복이 없어서 2단계가 끝난 뒤에 계획한다.
+  const back = await backfillPlans(sql, today);
+  if (back.length > 0) {
+    log('info', '[보충] 시계열·추이 지표의 빈 날짜 구간 ' + back.length + '개를 채웁니다.');
+    pending += await runRound(sql, http, { ...rest, refererDates: [], urlDates: [], plans: back }, log, report);
+  }
   const { to } = rest;
   const round = { refetchFrom: quick.refetchFrom };
 
@@ -232,6 +239,49 @@ async function runRound(sql: Sql, http: StatGetter, round: Round, log: JobLog, r
     if (r.budgetStopped) throw new BudgetExceededError('상한');
   }
   return pending;
+}
+
+/**
+ * 시계열(일 단위)·시간대별 추이·게시글별 추이에서 기간 안의 빈 날짜 구간마다 계획 하나.
+ * 이 지표들은 "처음이면 전체, 이후엔 최신 창만"이라 범위를 늘리면 과거가 비어 있게 된다(2026-11-21 30→90일에서 발견:
+ * 대시보드 조회수 카드가 90일 기간에 30일치만 합산). 구간의 끝을 to로 두면 MetricJob이 그 구간만 15일 창으로 받는다.
+ * 주간 시계열은 한 번에 15주가 와서 빼고, 게시글은 그 구간 순위에 나온 글만, 이미 그 구간 끝에 행이 있는 글은 건너뛴다.
+ */
+export async function backfillPlans(sql: Sql, today: string): Promise<MetricPlan[]> {
+  const to = addDays(today, -1);
+  const from = addDays(to, -(RANGE_DAYS - 1));
+  const store = new SqlMetricStore(sql);
+  const daily = (s: MetricSpec) => isSeries(s) && s.timeDim === 'DATE';
+  const groups: MetricSpec[][] = [
+    ...ALL.filter((s) => daily(s) && !s.perPost && !s.perHour).map((s) => [s]),
+    ALL.filter((s) => s.perHour),
+    ALL.filter((s) => s.perPost),
+  ];
+  const plans: MetricPlan[] = [];
+  for (const specs of groups) {
+    if (specs.length === 0) continue;
+    const key = specs.find(isSeries) ?? specs[0]!;
+    const have = await store.datesWith(key.id, from, to);
+    if (have.size === 0) continue; // 한 번도 받지 않은 지표는 처음 수집(1·2단계)이 전체를 받는다
+    for (const [gapFrom, gapTo] of gaps(from, to, have)) plans.push({ specs, from: gapFrom, to: gapTo, force: false, today });
+  }
+  return plans;
+}
+
+/** from~to 중 have에 없는 날짜의 연속 구간들(최신 구간부터). */
+export function gaps(from: string, to: string, have: Set<string>): [string, string][] {
+  const out: [string, string][] = [];
+  let end: string | null = null;
+  for (let d = to; d >= from; d = addDays(d, -1)) {
+    if (!have.has(d)) {
+      end ??= d;
+      if (addDays(d, -1) < from || have.has(addDays(d, -1))) {
+        out.push([d, end]);
+        end = null;
+      }
+    }
+  }
+  return out;
 }
 
 /** 시계열을 한 번도 받지 않았는지(처음이면 시계열을 전체 기간으로 받는다). */
@@ -308,6 +358,7 @@ export async function missingWork(sql: Sql, today: string): Promise<number> {
   const job = new MetricJob(new SqlMetricStore(sql));
   let n = round.refererDates.length + round.urlDates.length;
   for (const plan of round.plans.slice(1)) n += await job.estimateRequests(plan);
+  for (const plan of await backfillPlans(sql, today)) n += await job.estimateRequests(plan);
   return n;
 }
 
@@ -322,6 +373,7 @@ export async function estimateRound(sql: Sql, today: string, refetchDays: number
   for (const d of round.refererDates) n += 1 + (await detailCount(sql, d, true)) + (await detailCount(sql, d, false));
   for (const d of round.urlDates) n += await detailCount(sql, d, false);
   for (const plan of round.plans) n += await job.estimateRequests(plan);
+  for (const plan of await backfillPlans(sql, today)) n += await job.estimateRequests(plan);
   return n;
 }
 
