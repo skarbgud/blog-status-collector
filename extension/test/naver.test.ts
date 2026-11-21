@@ -21,7 +21,7 @@ function fake(steps: Step[], opts: { maxRequests?: number } = {}) {
       if (s === 'network') throw new TypeError('Failed to fetch');
       const o = typeof s === 'number' ? { status: s } : s;
       const json: Record<string, string> = o.status === 200 ? { 'content-type': 'application/json;charset=UTF-8' } : {};
-      return new Response(o.status === 200 ? (o.body ?? '{"ok":1}') : null, { status: o.status, headers: { ...json, ...o.headers } });
+      return new Response(o.status === 200 ? (o.body ?? '{"ok":1}') : (o.body ?? null), { status: o.status, headers: { ...json, ...o.headers } });
     },
   });
   return { client, sleeps, calls: () => calls };
@@ -186,4 +186,19 @@ test('한국 시간 날짜·시', () => {
   assert.equal(kstDate(-1, t), '2026-11-20');
   assert.equal(kstHour(t), 4);
   assert.equal(kstHour(new Date('2026-11-20T18:59:00Z')), 3);
+});
+
+test('429: 네이버가 500 + 본문 statusCode 429로 보내면 429처럼 재시도하고 감속한다', async () => {
+  const limited = { status: 500, headers: { 'content-type': 'application/json' }, body: '{"statusCode":429,"message":"Internal service Error","result":null}' };
+  const f = fake([limited, 200]);
+  assert.equal(await f.client.get(PATH), '{"ok":1}');
+  assert.equal(f.client.requestsUsed, 2);
+  assert.equal(f.client.maxConcurrent, 3);
+});
+
+test('500: 본문이 429가 아니면 재시도하지 않고 그 요청만 실패한다', async () => {
+  const f = fake([{ status: 500, body: '{"statusCode":500}' }]);
+  await assert.rejects(f.client.get(PATH), (e: unknown) => e instanceof HttpStatusError && e.status === 500);
+  assert.equal(f.calls(), 1);
+  assert.equal(f.client.maxConcurrent, 6);
 });

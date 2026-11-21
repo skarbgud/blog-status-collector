@@ -88,9 +88,23 @@ export interface StatClientOptions {
 const RETRY_STATUS = new Set([429, 502, 503, 504]);
 
 /**
+ * 네이버는 속도 제한을 HTTP 500 + 본문 `{"statusCode":429,...}`로 보내기도 한다(2026-11-21 동시 6개 수집에서 확인).
+ * 그런 500은 429로 바꿔 재시도·공동 감속을 한다. 다른 500은 그대로 둔다(그 요청만 실패).
+ */
+export function disguised429(status: number, body: string): boolean {
+  if (status !== 500 || body === '') return false;
+  try {
+    const json = JSON.parse(body) as { statusCode?: unknown } | null;
+    return json?.statusCode === 429 || json?.statusCode === '429';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 한 회차 동안 쓰는 클라이언트. 회차마다 새로 만든다.
  * - 동시에 최대 maxConcurrent(기본 6)개를 보내고, 요청 사이 간격은 minGapMs(기본 0)다(2026-11-21 1~2초 직렬에서 바꿈).
- * - 429를 받으면 모든 요청이 Retry-After(없으면 백오프)만큼 함께 쉬고, 그 회차의 동시 수를 절반(최소 1)으로 줄인다.
+ * - 429(또는 본문이 statusCode 429인 500)를 받으면 모든 요청이 Retry-After(없으면 백오프)만큼 함께 쉬고, 그 회차의 동시 수를 절반(최소 1)으로 줄인다.
  * - 재시도를 포함한 실제 요청 수를 상한으로 센다.
  * - 429(Retry-After 우선)·502·503·504·타임아웃·네트워크 오류는 백오프 후 재시도한다.
  *   HTTP 상태는 재시도를 다 써도 그 상태를 돌려주고(그 요청만 실패), 네트워크 오류는 회차를 막는다(오프라인).
@@ -223,8 +237,12 @@ export class StatClient {
     if (res.status === 200 && !type.includes('json')) {
       throw this.expire('JSON이 아닌 응답(' + (type || '형식 없음') + '), 로그인 페이지로 추정');
     }
-    // 실패 응답 본문은 쓰지 않는다.
-    return { status: res.status, body: res.status === 200 ? await res.text() : '', retryAfter: res.headers.get('retry-after') };
+    // 실패 응답 본문은 쓰지 않는다. 500만 속도 제한인지 보려고 읽고 버린다.
+    const retryAfter = res.headers.get('retry-after');
+    if (res.status === 500 && disguised429(500, await res.text().catch(() => ''))) {
+      return { status: 429, body: '', retryAfter };
+    }
+    return { status: res.status, body: res.status === 200 ? await res.text() : '', retryAfter };
   }
 
   /**
