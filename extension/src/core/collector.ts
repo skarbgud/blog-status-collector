@@ -20,7 +20,9 @@ import { ALL, isSeries, type MetricSpec } from './specs.js';
 import { deleteSetting, getSetting, setSetting, type Sql } from './sql.js';
 import { SqlMetricStore, SqlRefererStore } from './store.js';
 
-export const DEFAULT_DAILY_CAP = 300;
+/** 하루 요청 상한. 0 이하면 상한 없음(기본, 2026-11-21 사용자 결정). 요청 사이 2~5초와 401/403 중단은 그대로다. */
+export const DEFAULT_DAILY_CAP = 0;
+export const hasCap = (cap: number) => Number.isFinite(cap) && cap > 0;
 export const RANGE_DAYS = 30;
 /** 네이버가 어제분(순방문자·시간대)을 확정하는 시각. 2026-11-21 02:36엔 0, 03:20대엔 확정돼 있었다. */
 export const READY_HOUR_KST = 4;
@@ -34,6 +36,8 @@ export const S = {
   blogId: 'blog_id',
   dailyCap: 'daily_cap',
   completeDate: 'complete_date',
+  /** 마지막으로 끝난 회차 뒤에 남은 할 일 수("KST날짜|개수"). 같은 실패만 남았으면 그날은 다시 돌지 않는다 */
+  missingAfter: 'missing_after',
   loginFailedAt: 'login_failed_at',
   otherAccount: 'other_account_seen_at',
 } as const;
@@ -41,7 +45,7 @@ export const S = {
 export type Outcome =
   | 'done'            // 받을 것을 다 받음
   | 'partial'         // 집계 전 값이 있어 다음 확인 때 다시 받음
-  | 'up-to-date'      // 오늘 이미 끝남(요청 0회)
+  | 'up-to-date'      // 오늘 끝났고 새 할 일이 없음(요청 0회)
   | 'waiting'         // 04:00 KST 전(요청 0회)
   | 'cap-reached'     // 하루 상한(요청 0회 또는 도중 멈춤). 내일 이어서
   | 'login-required'  // 로그인 안 됨·만료
@@ -88,8 +92,14 @@ export async function runCollection(deps: CollectorDeps): Promise<RunReport> {
   if (kstHour(now) < READY_HOUR_KST) {
     return finish('waiting', '네이버가 어제 통계를 확정하는 04:00 이후에 받습니다.');
   }
+  // 오늘 끝났어도 새 할 일(새 수집 기능, 보충할 날짜)이 생겼으면 다시 돈다. 로컬 계산만 하므로 요청 0회다.
+  // 지난 회차 뒤 남은 개수와 같으면 같은 실패만 남은 것이라 그날은 쉰다(API 변경 시 30분마다 재요청 폭주 방지).
   if (!deps.manual && (await getSetting(sql, S.completeDate)) === today) {
-    return finish('up-to-date', '오늘 받을 것은 모두 받았습니다.');
+    const missing = await missingWork(sql, today);
+    if (missing === 0) return finish('up-to-date', '오늘 받을 것은 모두 받았습니다.');
+    if ((await getSetting(sql, S.missingAfter)) === today + '|' + missing) {
+      return finish('up-to-date', '오늘 받을 것은 받았습니다. 실패한 ' + missing + '건은 내일 다시 받습니다.');
+    }
   }
   const failedAt = await getSetting(sql, S.loginFailedAt);
   if (!deps.manual && failedAt && now.getTime() - Date.parse(failedAt) < LOGIN_RETRY_MS) {
@@ -97,7 +107,7 @@ export async function runCollection(deps: CollectorDeps): Promise<RunReport> {
   }
   const cap = Number((await getSetting(sql, S.dailyCap)) ?? DEFAULT_DAILY_CAP);
   const usedToday = Number((await sql.query('SELECT COALESCE(SUM(requests), 0) AS n FROM run_log WHERE kst_date = ?', [today]))[0]?.n ?? 0);
-  const remaining = cap - usedToday;
+  const remaining = hasCap(cap) ? cap - usedToday : Number.POSITIVE_INFINITY;
   if (remaining <= 0) {
     return finish('cap-reached', '오늘 요청 상한(' + cap + '회)을 다 썼습니다. 내일 이어서 받습니다.');
   }
@@ -199,6 +209,7 @@ async function collect(deps: CollectorDeps, client: StatClient, today: string, l
     return;
   }
   await setSetting(sql, S.completeDate, today);
+  await setSetting(sql, S.missingAfter, today + '|' + (await missingWork(sql, today)));
   const redone = round.refetchFrom === null ? ''
     : ' ' + (round.refetchFrom === to ? '어제' : round.refetchFrom + ' ~ ' + to) + '는 다시 받아 덮어썼습니다.';
   finish('done', '어제(' + to + ')까지 받았습니다.' + redone + failures);
@@ -244,6 +255,18 @@ export async function planRound(sql: Sql, today: string, refetchDays: number): P
   if (refetchFrom !== null) plans.push({ specs: others, from: refetchFrom, to, force: true, today, keepOnPending: true });
   plans.push({ specs: others, from, to, force: false, today });
   return { from, to, refetchFrom, refererDates, urlDates, plans };
+}
+
+/**
+ * 아직 받지 않은 것의 개수(요청 없이 로컬에서 계산): 빠진 유입경로 날짜 + 상세 URL만 빠진 날짜 + 빠진 지표 단위.
+ * 매번 다시 받는 시계열 창(plans[0])은 "빠진 것"이 아니라 세지 않는다.
+ */
+export async function missingWork(sql: Sql, today: string): Promise<number> {
+  const round = await planRound(sql, today, 0);
+  const job = new MetricJob(new SqlMetricStore(sql));
+  let n = round.refererDates.length + round.urlDates.length;
+  for (const plan of round.plans.slice(1)) n += await job.estimateRequests(plan);
+  return n;
 }
 
 /**

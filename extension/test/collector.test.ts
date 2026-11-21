@@ -19,7 +19,15 @@ const refererBody = (date: string) => ({
   ] },
 });
 
-interface Server { urls: URL[]; userInfo: () => Response; failAt?: number; failWith?: () => Response }
+interface Server {
+  urls: URL[]; userInfo: () => Response; failAt?: number; failWith?: () => Response;
+  /** 상세 URL 요청에 정상 응답(기본은 404) */
+  urlOk?: boolean;
+}
+const urlBody = (date: string) => ({
+  statusCode: 200, result: { statDataList: [{ dataId: 'refererDetail', data: { rows: {
+    date: [date], referrerUrl: ['https://example.com/a'], cv: [3], cv_p: [100] } } }] },
+});
 
 function server(over: Partial<Server> = {}): Server {
   return { urls: [], userInfo: () => json({ baUserKey: 'secret', blogId: 'me' }), ...over };
@@ -35,6 +43,7 @@ function deps(sql: NodeSql, srv: Server, extra: Partial<CollectorDeps> = {}): Co
         if (srv.failAt !== undefined && srv.urls.length >= srv.failAt) return srv.failWith!();
         if (url.pathname === '/api/blog/user-info') return srv.userInfo();
         if (url.pathname === '/api/blog/daily/referer/total') return json(refererBody(url.searchParams.get('startDate')!));
+        if (srv.urlOk && url.pathname === '/api/blog/daily/referer/total/detail') return json(urlBody(url.searchParams.get('startDate')!));
         return new Response(null, { status: 404 }); // 지표는 이 테스트의 관심사가 아니다(실패로 세고 계속)
       },
     }),
@@ -114,10 +123,43 @@ test('전체 회차: 블로그를 묶고, 유입경로 30일을 최신순으로 
   assert.equal(await count(sql, 'SELECT COUNT(*) AS n FROM raw_response'), 30);
   assert.equal(await count(sql, "SELECT COUNT(*) AS n FROM raw_response WHERE path LIKE '%user-info%' OR body LIKE '%baUserKey%'"), 0);
 
+  // 같은 실패만 남았으면(지표 404) 그날은 다시 돌지 않는다
   const before = srv.urls.length;
   const again = await runCollection(deps(sql, srv, { now: later(2) }));
   assert.equal(again.outcome, 'up-to-date');
+  assert.match(again.message, /실패한 \d+건은 내일/);
   assert.equal(srv.urls.length, before);
+});
+
+test('상한 기본값은 없음: 회차 클라이언트 상한이 무한대다', async () => {
+  const sql = await memoryDb();
+  const srv = server();
+  const seen: number[] = [];
+  const d = deps(sql, srv);
+  const make = d.makeClient;
+  const r = await runCollection({ ...d, makeClient: (max) => { seen.push(max); return make(max); } });
+  assert.notEqual(r.outcome, 'cap-reached', r.message);
+  assert.deepEqual(seen, [Number.POSITIVE_INFINITY]);
+  assert.equal(refererDates(srv).length, 30);
+});
+
+test('오늘 끝났어도 새 할 일이 생기면(빠진 날짜) 자동 회차가 다시 돈다. 받을 게 없으면 요청 0회', async () => {
+  const sql = await memoryDb();
+  const srv = server({ urlOk: true });
+  const r = await runCollection(deps(sql, srv));
+  assert.equal(r.outcome, 'done', r.message);
+
+  assert.equal(await count(sql, 'SELECT COUNT(*) AS n FROM referrer_url_daily'), 30);
+  const before = srv.urls.length;
+  assert.equal((await runCollection(deps(sql, srv, { now: later(1) }))).outcome, 'up-to-date');
+  assert.equal(srv.urls.length, before);
+
+  // 새 버전이 새 수집 단위를 더한 것처럼: 한 날짜의 유입경로가 빠지면 다음 30분 확인에서 받는다
+  await sql.query("DELETE FROM referrer_daily WHERE stat_date = '2026-11-10'");
+  await sql.query("DELETE FROM collection_state WHERE stat_date = '2026-11-10'");
+  const r2 = await runCollection(deps(sql, srv, { now: later(1.5) }));
+  assert.equal(r2.outcome, 'done', r2.message);
+  assert.deepEqual(refererDates(srv).slice(30), ['2026-11-10']);
 });
 
 test('다음 날에는 새 어제 하루만 유입경로를 받는다', async () => {

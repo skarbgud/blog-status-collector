@@ -67,7 +67,7 @@ function render(s: StatusReply): void {
   } else {
     out.push(line('마지막 확인', '아직 없음'));
   }
-  out.push(line('오늘 요청', st.todayRequests + ' / ' + st.dailyCap + '회'));
+  out.push(line('오늘 요청', st.todayRequests + (st.dailyCap > 0 ? ' / ' + st.dailyCap + '회' : '회 (상한 없음)')));
   out.push(line('유입경로', st.referrerDays > 0 ? st.referrerDays + '일 (' + st.referrerFirst + ' ~ ' + st.referrerLast + ')' : '없음'));
   out.push(line('지표', st.metricRows > 0 ? st.metricRows.toLocaleString('ko-KR') + '행 (최근 ' + st.metricLast + ')' : '없음'));
   rowsEl.replaceChildren(...out);
@@ -88,9 +88,10 @@ async function estimate(): Promise<void> {
     const e = (await chrome.runtime.sendMessage({ target: 'offscreen', type: 'estimate-refetch', days: 1 })) as
       (RefetchEstimate & { error?: string }) | undefined;
     if (!e || e.error) throw new Error(e?.error ?? '응답 없음');
-    planEl.textContent = '누르면 빠진 날짜를 채우고 어제를 다시 받아 덮어씁니다 · 약 ' + e.estimate + '회 / 남은 상한 ' + e.remaining + '회';
-    planEl.className = 'note' + (e.remaining < e.estimate ? ' warn' : '');
-    if (e.remaining < e.estimate) {
+    planEl.textContent = '누르면 빠진 날짜를 채우고 어제를 다시 받아 덮어씁니다 · 약 ' + e.estimate + '회'
+      + (e.unlimited ? '' : ' / 남은 상한 ' + e.remaining + '회');
+    planEl.className = 'note' + (!e.unlimited && e.remaining < e.estimate ? ' warn' : '');
+    if (!e.unlimited && e.remaining < e.estimate) {
       planEl.textContent += e.remaining === 0
         ? ' — 오늘 상한을 다 써서 지금은 받지 못합니다. 옵션에서 상한을 바꾸거나 내일 다시 누르세요.'
         : ' — 상한이 부족해 일부만 받고 멈춥니다. 나머지는 다음 날 이어 받습니다.';

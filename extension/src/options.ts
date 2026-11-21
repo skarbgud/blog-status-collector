@@ -87,7 +87,7 @@ $<HTMLInputElement>('json').addEventListener('change', (ev) => {
 $('save-cap').addEventListener('click', () => busy($('save-cap'), async () => {
   try {
     const r = await call<{ dailyCap: number }>({ type: 'set-settings', cap: Number($<HTMLInputElement>('cap').value) });
-    show('cap-out', '저장했습니다: 하루 ' + r.dailyCap + '회', true);
+    show('cap-out', '저장했습니다: ' + (r.dailyCap > 0 ? '하루 ' + r.dailyCap + '회' : '상한 없음'), true);
   } catch (e) {
     show('cap-out', '저장하지 못했습니다: ' + (e as Error).message, false);
   }
@@ -102,8 +102,8 @@ const REFETCH_DAYS = 7;
 async function refetchPlan(): Promise<void> {
   try {
     const e = await call<RefetchEstimate>({ type: 'estimate-refetch', days: REFETCH_DAYS });
-    $('refetch7-plan').textContent = '약 ' + e.estimate + '회 / 오늘 남은 상한 ' + e.remaining + '회'
-      + (e.remaining < e.estimate ? ' (상한이 부족해 나눠 받습니다)' : '');
+    $('refetch7-plan').textContent = '약 ' + e.estimate + '회'
+      + (e.unlimited ? '' : ' / 오늘 남은 상한 ' + e.remaining + '회' + (e.remaining < e.estimate ? ' (상한이 부족해 나눠 받습니다)' : ''));
   } catch (err) {
     $('refetch7-plan').textContent = '예상 요청 수를 계산하지 못했습니다: ' + (err as Error).message;
   }

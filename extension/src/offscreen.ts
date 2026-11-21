@@ -3,7 +3,7 @@
 // 수집 요청에는 결과를 기다리지 않고 바로 답한다.
 import { Db } from './db.js';
 import {
-  DEFAULT_DAILY_CAP, REFETCH_DEFAULT_DAYS, REFETCH_MAX_DAYS, S, estimateRound, runCollection, type Outcome, type RunReport,
+  DEFAULT_DAILY_CAP, hasCap, REFETCH_DEFAULT_DAYS, REFETCH_MAX_DAYS, S, estimateRound, runCollection, type Outcome, type RunReport,
 } from './core/collector.js';
 import { DashboardQuery } from './core/dashboard-query.js';
 import { fromBase64, looksLikeSqlite, toBase64 } from './core/base64.js';
@@ -93,7 +93,9 @@ async function stored(): Promise<StoredStatus> {
 }
 
 async function status(): Promise<StatusReply> {
-  const p = progress && client ? { ...progress, requests: client.requestsUsed, maxRequests: client.maxRequests } : progress;
+  // 상한 없음(Infinity)은 메시지로 보내면 null이 되므로 0(표시 안 함)으로 보낸다.
+  const max = client && Number.isFinite(client.maxRequests) ? client.maxRequests : 0;
+  const p = progress && client ? { ...progress, requests: client.requestsUsed, maxRequests: max } : progress;
   try {
     return { stored: await stored(), progress: p, lastReport };
   } catch (e) {
@@ -119,7 +121,11 @@ type Msg = {
 };
 
 /** "지금 수집"(다시 받기) 전에 보여 줄 어림값. 요청은 보내지 않는다. */
-export interface RefetchEstimate { days: number; estimate: number; used: number; cap: number; remaining: number }
+export interface RefetchEstimate {
+  days: number; estimate: number; used: number; cap: number;
+  /** 상한이 없으면 true(이때 remaining은 의미 없음) */
+  unlimited: boolean; remaining: number;
+}
 type Handler = (msg: Msg) => Promise<unknown>;
 
 const handlers: Record<string, Handler> = {
@@ -140,12 +146,18 @@ const handlers: Record<string, Handler> = {
     const st = await stored();
     const days = refetchDaysOf(m.days);
     const estimate = await estimateRound(db, kstDate(0), days);
-    return { days, estimate, used: st.todayRequests, cap: st.dailyCap, remaining: Math.max(0, st.dailyCap - st.todayRequests) };
+    const unlimited = !hasCap(st.dailyCap);
+    return {
+      days, estimate, used: st.todayRequests, cap: st.dailyCap, unlimited,
+      remaining: unlimited ? estimate : Math.max(0, st.dailyCap - st.todayRequests),
+    };
   },
   'get-settings': async () => ({ dailyCap: Number((await getSetting(db, S.dailyCap)) ?? DEFAULT_DAILY_CAP) }),
   'set-settings': async (m) => {
     const cap = Math.round(Number(m.cap));
-    if (!Number.isFinite(cap) || cap < 50 || cap > 2000) throw new Error('하루 요청 상한은 50~2000회입니다.');
+    if (!Number.isFinite(cap) || (cap !== 0 && (cap < 50 || cap > 100000))) {
+      throw new Error('하루 요청 상한은 0(상한 없음) 또는 50~100000회입니다.');
+    }
     await ready;
     await setSetting(db, S.dailyCap, String(cap));
     return { dailyCap: cap };
