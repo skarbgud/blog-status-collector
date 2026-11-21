@@ -262,10 +262,20 @@ export async function createTerrain(el, { hint } = {}) {
     requestRender();
   }
 
+  // 크기 조정은 다음 프레임에 한 번만 한다. 캔버스 크기는 CSS(100%)가 정하므로 setSize는 해상도만 바꾸고
+  // style을 건드리지 않는다(false). 그래야 ResizeObserver가 자기 변경에 다시 불리는 고리가 생기지 않는다.
+  let resizeFrame = 0;
   function resize() {
+    if (resizeFrame || disposed) return;
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = 0;
+      applySize();
+    });
+  }
+  function applySize() {
     const w = el.clientWidth, h = el.clientHeight;
     if (!w || !h) return;
-    renderer.setSize(w, h);
+    renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     requestRender();
@@ -339,7 +349,7 @@ export async function createTerrain(el, { hint } = {}) {
   controls.addEventListener('change', requestRender);
   const ro = new ResizeObserver(resize);
   ro.observe(el);
-  resize();
+  applySize();
   setView('default');
 
   return {
@@ -357,6 +367,7 @@ export async function createTerrain(el, { hint } = {}) {
       disposed = true;
       if (frame) cancelAnimationFrame(frame);
       if (moveFrame) cancelAnimationFrame(moveFrame);
+      if (resizeFrame) cancelAnimationFrame(resizeFrame);
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerleave', onLeave);
       canvas.removeEventListener('pointerdown', onDown);
