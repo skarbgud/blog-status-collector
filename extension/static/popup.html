@@ -27,9 +27,10 @@
   <h1>블로그 통계</h1>
   <div id="rows"></div>
   <div id="progress" hidden></div>
-  <button id="run">지금 수집</button>
+  <button id="run">지금 수집 (어제 다시 받기)</button>
+  <p class="note" id="plan"></p>
   <div class="links"><button id="open-dash" class="sec">대시보드 열기</button><button id="open-opts" class="sec">백업·가져오기</button></div>
-  <p class="note">로그인돼 있으면 30분마다 확인해서 어제까지 빠진 것을 받습니다(04:00 이후, 요청 사이 2~5초). 데이터는 이 브라우저에만 저장됩니다. 확장을 삭제하면 데이터도 지워집니다.</p>
+  <p class="note">로그인돼 있으면 30분마다 확인해서 어제까지 빠진 것을 자동으로 받습니다(04:00 이후, 요청 사이 2~5초). "지금 수집"은 여기에 더해 어제를 새로 받아 덮어씁니다. 데이터는 이 브라우저에만 저장됩니다. 확장을 삭제하면 데이터도 지워집니다.</p>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

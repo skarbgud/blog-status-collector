@@ -5,6 +5,9 @@
 //   1) 유입경로·검색어: 받지 않은 날짜(최신순)
 //   2) 지표 시계열: 처음이면 30일(15일 창 2번), 이후에는 어제를 포함한 창 1번(늦게 확정된 값도 덮어쓴다)
 //   3) 나머지 지표: 받지 않은 날짜·시간대·게시글(MetricJob)
+// "지금 수집"(refetchDays)은 여기에 더해 최근 N일(기본 어제 하루)을 이미 있어도 다시 받아 날짜 단위로 덮어쓴다.
+// 행 단위 upsert가 아니라 날짜 단위 교체인 이유: 네이버가 다시 집계해 사라진 유입처·검색어 행이 남지 않게 하려고.
+// 다시 받을 때 집계 전 빈 값이 오면 확정된 기존 값은 지우지 않는다(keepOnPending).
 import { addDays } from './dates.js';
 import { MetricJob, type JobLog, type MetricPlan, type StatGetter } from './metric-job.js';
 import { RefererParseError, fetchRefererDay } from './referer.js';
@@ -22,6 +25,9 @@ export const RANGE_DAYS = 30;
 export const READY_HOUR_KST = 4;
 export const LOGIN_RETRY_MS = 6 * 3600_000;
 export const RAW_KEEP_DAYS = 14;
+/** "지금 수집"이 다시 받는 기본 일수(어제 하루)와 옵션 페이지에서 고를 수 있는 최대 일수. */
+export const REFETCH_DEFAULT_DAYS = 1;
+export const REFETCH_MAX_DAYS = 7;
 
 export const S = {
   blogId: 'blog_id',
@@ -59,6 +65,8 @@ export interface CollectorDeps {
   trigger: string;
   /** 사용자가 "지금 수집"을 누름: 오늘 끝남·로그인 실패 대기를 무시한다(시각·상한은 지킨다). */
   manual?: boolean;
+  /** 0보다 크면 어제부터 거슬러 이 일수만큼은 이미 받았어도 다시 받아 덮어쓴다(1~REFETCH_MAX_DAYS). */
+  refetchDays?: number;
 }
 
 export async function runCollection(deps: CollectorDeps): Promise<RunReport> {
@@ -142,14 +150,12 @@ async function collect(deps: CollectorDeps, client: StatClient, today: string, l
   }
 
   const http = recording(client, sql);
-  const to = addDays(today, -1);
-  const from = addDays(to, -(RANGE_DAYS - 1));
+  const round = await planRound(sql, today, deps.refetchDays ?? 0);
+  const { to } = round;
 
-  // 1) 유입경로·검색어
+  // 1) 유입경로·검색어(다시 받는 날짜는 있어도 받아 날짜 단위로 교체)
   const referers = new SqlRefererStore(sql);
-  const have = await referers.datesWith(from, to);
-  for (let d = to; d >= from; d = addDays(d, -1)) {
-    if (have.has(d)) continue;
+  for (const d of round.refererDates) {
     try {
       const day = await fetchRefererDay(http, d, 100, log);
       if (await referers.save(day)) report.saved.REFERER = (report.saved.REFERER ?? 0) + day.rows.length;
@@ -165,15 +171,8 @@ async function collect(deps: CollectorDeps, client: StatClient, today: string, l
   const repaired = await store.repairMarkers();
   if (repaired > 0) log('info', '[정리] 시계열 지표에 잘못 남은 조회 불가 표시 ' + repaired + '행을 지웠습니다.');
   const job = new MetricJob(store, log);
-  const plainSeries = (s: MetricSpec) => isSeries(s) && !s.perPost && !s.perHour;
-  const seriesSpecs = ALL.filter(plainSeries);
-  const firstTime = (await sql.query("SELECT 1 FROM metric_row WHERE metric = 'VIEWS' LIMIT 1")).length === 0;
-  const plans: MetricPlan[] = [
-    { specs: seriesSpecs, from: firstTime ? from : to, to, force: false, today },
-    { specs: ALL.filter((s) => !plainSeries(s)), from, to, force: false, today },
-  ];
   let pending = 0;
-  for (const plan of plans) {
+  for (const plan of round.plans) {
     const r = await job.execute(http, plan);
     for (const [k, v] of Object.entries(r.saved)) report.saved[k] = (report.saved[k] ?? 0) + v;
     report.failures += r.failures;
@@ -187,7 +186,65 @@ async function collect(deps: CollectorDeps, client: StatClient, today: string, l
     return;
   }
   await setSetting(sql, S.completeDate, today);
-  finish('done', '어제(' + to + ')까지 받았습니다.' + failures);
+  const redone = round.refetchFrom === null ? ''
+    : ' ' + (round.refetchFrom === to ? '어제' : round.refetchFrom + ' ~ ' + to) + '는 다시 받아 덮어썼습니다.';
+  finish('done', '어제(' + to + ')까지 받았습니다.' + redone + failures);
+}
+
+export interface Round {
+  from: string;
+  to: string;
+  /** 다시 받아 덮어쓰는 첫 날짜(없으면 null). to까지 */
+  refetchFrom: string | null;
+  /** 받을 유입경로 날짜(최신순): 빠진 날짜 + 다시 받는 날짜 */
+  refererDates: string[];
+  plans: MetricPlan[];
+}
+
+/** 이번 회차에 받을 것. 수집과 예상 요청 수 계산이 같은 계획을 쓴다. */
+export async function planRound(sql: Sql, today: string, refetchDays: number): Promise<Round> {
+  const to = addDays(today, -1);
+  const from = addDays(to, -(RANGE_DAYS - 1));
+  const days = Math.min(Math.max(Math.floor(refetchDays) || 0, 0), REFETCH_MAX_DAYS);
+  const refetchFrom = days > 0 ? addDays(to, -(days - 1)) : null;
+
+  const have = await new SqlRefererStore(sql).datesWith(from, to);
+  const refererDates: string[] = [];
+  for (let d = to; d >= from; d = addDays(d, -1)) {
+    if (have.has(d) && !(refetchFrom !== null && d >= refetchFrom)) continue;
+    refererDates.push(d);
+  }
+
+  const plainSeries = (s: MetricSpec) => isSeries(s) && !s.perPost && !s.perHour;
+  const others = ALL.filter((s) => !plainSeries(s));
+  const firstTime = (await sql.query("SELECT 1 FROM metric_row WHERE metric = 'VIEWS' LIMIT 1")).length === 0;
+  // 시계열은 매번 어제를 포함한 15일 창을 받아 덮어쓴다(다시 받는 범위도 그 창 안에 있다).
+  const plans: MetricPlan[] = [{ specs: ALL.filter(plainSeries), from: firstTime ? from : (refetchFrom ?? to), to, force: false, today }];
+  // 다시 받기를 먼저 해서, 뒤의 "빠진 것 채우기"가 같은 날짜를 또 받지 않게 한다.
+  if (refetchFrom !== null) plans.push({ specs: others, from: refetchFrom, to, force: true, today, keepOnPending: true });
+  plans.push({ specs: others, from, to, force: false, today });
+  return { from, to, refetchFrom, refererDates, plans };
+}
+
+/**
+ * 이번 회차의 예상 요청 수(user-info 포함, 재시도 제외). 게시글별은 지금 저장된 순위 기준이라 어림값이다.
+ * 다시 받는 날짜가 아직 비어 있으면 "채우기" 계획에도 한 번 더 세어 실제보다 조금 많게 나올 수 있다.
+ */
+export async function estimateRound(sql: Sql, today: string, refetchDays: number): Promise<number> {
+  const round = await planRound(sql, today, refetchDays);
+  const job = new MetricJob(new SqlMetricStore(sql));
+  let n = 1;
+  for (const d of round.refererDates) n += 1 + (await searchEngines(sql, d));
+  for (const plan of round.plans) n += await job.estimateRequests(plan);
+  return n;
+}
+
+/** 그 날짜의 검색 유입처 수(검색어 요청 수). 아직 없는 날짜는 가장 최근 날짜의 수로 어림한다. */
+async function searchEngines(sql: Sql, date: string): Promise<number> {
+  const q = 'SELECT COUNT(*) AS n FROM referrer_daily WHERE search_engine = 1 AND stat_date = ';
+  const own = Number((await sql.query(q + '?', [date]))[0]?.n ?? 0);
+  if (own > 0) return own;
+  return Number((await sql.query(q + '(SELECT MAX(stat_date) FROM referrer_daily)'))[0]?.n ?? 0);
 }
 
 /** 받은 응답 원문을 남기는 StatGetter(파서를 고친 뒤 다시 읽기용, 14일 보관). */

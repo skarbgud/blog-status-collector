@@ -34,6 +34,11 @@ export interface MetricPlan {
   force: boolean;
   /** 오늘(KST). 이 날짜 이후의 시계열 행은 버린다 */
   today: string;
+  /**
+   * 다시 받아 덮어쓸 때(force) 네이버가 집계 전이라 빈 값을 주면, 지우지 않고 앞서 저장된 값을 그대로 둔다.
+   * 확정된 값을 일시적인 0으로 잃지 않기 위해서다. 기본(false)은 지금처럼 지우고 다음에 다시 받는다.
+   */
+  keepOnPending?: boolean;
 }
 
 export interface MetricResult {
@@ -110,6 +115,11 @@ export class MetricJob {
       try {
         const rows = parseMetric(body, spec, unit.requested, plan.today, unit.postId);
         if (rows.length === 0 && !isSeries(spec) && !isValue(spec)) {
+          if (plan.keepOnPending && (await this.store.datesWith(spec.id, unit.requested, unit.requested)).has(unit.requested)) {
+            // 덮어쓰기 중: 확정된 기존 값을 집계 전 빈 값으로 지우지 않는다.
+            this.log('info', '[집계 전] ' + spec.id + ' ' + unit.requested + ' 아직 확정되지 않아 기존 값을 그대로 둡니다.');
+            continue;
+          }
           // 네이버가 아직 집계하지 않은 날. 저장하지 않고(다음에 다시 받는다), 앞서 저장된 잠정값은 지운다.
           await this.store.clear(spec.id, unit.requested);
           result.pending++;

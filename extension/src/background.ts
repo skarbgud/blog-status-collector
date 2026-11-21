@@ -42,13 +42,16 @@ async function ensureAlarm(): Promise<void> {
   }
 }
 
-async function kick(trigger: string): Promise<void> {
+/** 회차를 시작한다. 사람이 누른 수집(manual)은 days만큼 다시 받아 덮어쓴다. 오프스크린의 수락 여부를 돌려준다. */
+async function kick(trigger: string, days?: number): Promise<{ accepted: boolean; reason?: string }> {
   if (trigger !== 'manual' && !(await hasLoginCookie())) {
     await setBadge('!', '네이버 로그인이 필요합니다');
-    return;
+    return { accepted: false, reason: 'no-login-cookie' };
   }
   await ensureOffscreen();
-  await chrome.runtime.sendMessage({ target: 'offscreen', type: 'collect', trigger });
+  const r = (await chrome.runtime.sendMessage({ target: 'offscreen', type: 'collect', trigger, days })) as
+    { accepted: boolean; reason?: string } | undefined;
+  return r ?? { accepted: false, reason: 'no-reply' };
 }
 
 async function setBadge(text: string, title: string): Promise<void> {
@@ -69,14 +72,19 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) kick('alarm').catch(warn('alarm'));
 });
 
-chrome.runtime.onMessage.addListener((msg: { target?: string; type?: string; text?: string; title?: string }, _sender, sendResponse) => {
+type BgMsg = { target?: string; type?: string; text?: string; title?: string; days?: number };
+
+chrome.runtime.onMessage.addListener((msg: BgMsg, _sender, sendResponse) => {
   if (msg.target !== 'background') return;
   if (msg.type === 'ensure-offscreen') {
     ensureOffscreen().then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String(e) }));
     return true;
   }
   if (msg.type === 'collect-now') {
-    kick('manual').then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String(e) }));
+    // 사람이 누른 수집: 빠진 것을 채우고 최근 days일(기본 어제 하루)을 다시 받아 덮어쓴다.
+    kick('manual', msg.days).then(
+      (r) => sendResponse({ ok: r.accepted, reason: r.reason }),
+      (e) => sendResponse({ ok: false, error: String(e) }));
     return true;
   }
   if (msg.type === 'badge') {

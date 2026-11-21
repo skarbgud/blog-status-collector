@@ -2,7 +2,9 @@
 // 서비스 워커(트리거), 팝업, 대시보드, 옵션 페이지는 이 문서에 메시지를 보낸다.
 // 수집 요청에는 결과를 기다리지 않고 바로 답한다.
 import { Db } from './db.js';
-import { DEFAULT_DAILY_CAP, S, runCollection, type Outcome, type RunReport } from './core/collector.js';
+import {
+  DEFAULT_DAILY_CAP, REFETCH_DEFAULT_DAYS, REFETCH_MAX_DAYS, S, estimateRound, runCollection, type Outcome, type RunReport,
+} from './core/collector.js';
 import { DashboardQuery } from './core/dashboard-query.js';
 import { fromBase64, looksLikeSqlite, toBase64 } from './core/base64.js';
 import { importExport } from './core/importer.js';
@@ -26,16 +28,27 @@ let lastReport: RunReport | null = null;
 /** 복원·가져오기 중에는 수집을 시작하지 않는다(반대도 마찬가지). */
 let maintenance = false;
 
-/** 진행 중이면 같은 회차를 돌려준다(동시 실행 방지). */
-function start(trigger: string, manual: boolean): Promise<RunReport> | null {
-  if (maintenance) return null;
-  running ??= (async () => {
+/** 사람이 누른 수집이 다시 받을 일수. 범위를 벗어나면 기본값(어제 하루). */
+function refetchDaysOf(v: unknown): number {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) && n >= 1 && n <= REFETCH_MAX_DAYS ? n : REFETCH_DEFAULT_DAYS;
+}
+
+/**
+ * 회차를 시작한다. 이미 돌고 있으면 시작하지 않고 'busy'를 돌려준다(동시 실행 방지).
+ * 자동 회차가 도는 중에 누른 "지금 수집"이 자동 회차에 묻혀 덮어쓰기 없이 끝나는 일이 없게, 사람에게 알린다.
+ */
+function start(trigger: string, manual: boolean, refetchDays: number): 'started' | 'busy' | 'maintenance' {
+  if (maintenance) return 'maintenance';
+  if (running) return 'busy';
+  running = (async () => {
     await ready;
     progress = { trigger, startedAt: new Date().toISOString(), requests: 0, maxRequests: 0, message: '시작' };
     const report = await runCollection({
       sql: db,
       trigger,
       manual,
+      refetchDays,
       makeClient: (max) => (client = new StatClient({ maxRequests: max, log })),
       log,
     });
@@ -54,7 +67,7 @@ function start(trigger: string, manual: boolean): Promise<RunReport> | null {
       progress = null;
       client = null;
     });
-  return running;
+  return 'started';
 }
 
 function log(level: 'info' | 'warn', message: string): void {
@@ -100,7 +113,13 @@ async function exclusive<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-type Msg = { target?: string; type?: string; trigger?: string; name?: string; params?: Record<string, string>; data?: unknown; base64?: string; cap?: number };
+type Msg = {
+  target?: string; type?: string; trigger?: string; name?: string; params?: Record<string, string>; data?: unknown;
+  base64?: string; cap?: number; days?: number;
+};
+
+/** "지금 수집"(다시 받기) 전에 보여 줄 어림값. 요청은 보내지 않는다. */
+export interface RefetchEstimate { days: number; estimate: number; used: number; cap: number; remaining: number }
 type Handler = (msg: Msg) => Promise<unknown>;
 
 const handlers: Record<string, Handler> = {
@@ -117,6 +136,12 @@ const handlers: Record<string, Handler> = {
     return { stored: await stored() };
   }),
   'import-json': (m) => exclusive(async () => ({ result: await importExport(db, m.data) })),
+  'estimate-refetch': async (m): Promise<RefetchEstimate> => {
+    const st = await stored();
+    const days = refetchDaysOf(m.days);
+    const estimate = await estimateRound(db, kstDate(0), days);
+    return { days, estimate, used: st.todayRequests, cap: st.dailyCap, remaining: Math.max(0, st.dailyCap - st.todayRequests) };
+  },
   'get-settings': async () => ({ dailyCap: Number((await getSetting(db, S.dailyCap)) ?? DEFAULT_DAILY_CAP) }),
   'set-settings': async (m) => {
     const cap = Math.round(Number(m.cap));
@@ -130,8 +155,9 @@ const handlers: Record<string, Handler> = {
 chrome.runtime.onMessage.addListener((msg: Msg, _sender, sendResponse) => {
   if (msg.target !== 'offscreen') return;
   if (msg.type === 'collect') {
-    const r = start(msg.trigger ?? 'unknown', msg.trigger === 'manual');
-    sendResponse({ accepted: r !== null });
+    const manual = msg.trigger === 'manual';
+    const r = start(msg.trigger ?? 'unknown', manual, manual ? refetchDaysOf(msg.days) : 0);
+    sendResponse({ accepted: r === 'started', reason: r === 'started' ? undefined : r });
     return;
   }
   const h = handlers[msg.type ?? ''];

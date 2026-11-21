@@ -61,6 +61,14 @@
     <div class="row"><input type="number" id="cap" min="50" max="2000" step="50"> <span>회</span> <button id="save-cap">저장</button></div>
     <div class="result" id="cap-out"></div>
   </section>
+
+  <section>
+    <h2>최근 7일 다시 받기</h2>
+    <p>어제부터 7일을 이미 받았어도 새로 받아 날짜 단위로 덮어씁니다. 네이버가 지난 값을 고쳤을 때 씁니다. 팝업의 "지금 수집"은 어제 하루만 다시 받습니다.
+       집계 전이라 빈 값이 오면 이미 저장된 값은 그대로 둡니다. 하루 요청 상한 안에서만 받고, 넘으면 멈춘 뒤 다음 날 이어 받습니다.</p>
+    <div class="row"><button id="refetch7">7일 다시 받기</button> <span id="refetch7-plan"></span></div>
+    <div class="result" id="refetch7-out"></div>
+  </section>
 </main>
 <script type="module" src="options.js"></script>
 </body>

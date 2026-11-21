@@ -1,6 +1,7 @@
 // 옵션 페이지: 백업 내보내기·복원, Java 데이터 가져오기, 하루 요청 상한. 결과는 textContent로만 넣는다.
 import { fromBase64, toBase64 } from './core/base64.js';
 import type { ImportResult } from './core/importer.js';
+import type { RefetchEstimate } from './offscreen.js';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -95,3 +96,29 @@ $('save-cap').addEventListener('click', () => busy($('save-cap'), async () => {
 call<{ dailyCap: number }>({ type: 'get-settings' })
   .then((r) => { $<HTMLInputElement>('cap').value = String(r.dailyCap); })
   .catch((e) => show('cap-out', '설정을 읽지 못했습니다: ' + (e as Error).message, false));
+
+// 최근 7일 다시 받기: 누르기 전에 예상 요청 수와 남은 상한을 보여 준다(요청은 보내지 않음).
+const REFETCH_DAYS = 7;
+async function refetchPlan(): Promise<void> {
+  try {
+    const e = await call<RefetchEstimate>({ type: 'estimate-refetch', days: REFETCH_DAYS });
+    $('refetch7-plan').textContent = '약 ' + e.estimate + '회 / 오늘 남은 상한 ' + e.remaining + '회'
+      + (e.remaining < e.estimate ? ' (상한이 부족해 나눠 받습니다)' : '');
+  } catch (err) {
+    $('refetch7-plan').textContent = '예상 요청 수를 계산하지 못했습니다: ' + (err as Error).message;
+  }
+}
+$('refetch7').addEventListener('click', () => busy($('refetch7'), async () => {
+  try {
+    const r = (await chrome.runtime.sendMessage({ target: 'background', type: 'collect-now', days: REFETCH_DAYS })) as
+      { ok: boolean; reason?: string; error?: string };
+    if (!r.ok) {
+      throw new Error(r.error ?? (r.reason === 'busy' ? '수집이 이미 돌고 있습니다. 끝난 뒤 다시 누르세요.'
+        : r.reason === 'maintenance' ? '복원·가져오기가 진행 중입니다.' : (r.reason ?? '알 수 없음')));
+    }
+    show('refetch7-out', '시작했습니다. 진행 상황과 결과는 팝업에서 볼 수 있습니다.', true);
+  } catch (e) {
+    show('refetch7-out', '시작하지 못했습니다: ' + (e as Error).message, false);
+  }
+}));
+void refetchPlan();
