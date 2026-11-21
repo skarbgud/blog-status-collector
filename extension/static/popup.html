@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>블로그 통계 PoC</title>
+<style>
+  :root { --bg:#fff; --fg:#1d2330; --muted:#6b7280; --ok:#15803d; --bad:#b91c1c; --line:#e5e7eb; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16181d; --fg:#e5e7eb; --muted:#9ca3af; --ok:#4ade80; --bad:#f87171; --line:#2a2e37; } }
+  body { margin:0; padding:14px; width:380px; background:var(--bg); color:var(--fg); font:13px/1.5 system-ui, sans-serif; }
+  h1 { font-size:15px; margin:0 0 4px; }
+  p { margin:0 0 10px; color:var(--muted); }
+  button { width:100%; padding:8px; font:inherit; font-weight:600; cursor:pointer; }
+  #status { margin:8px 0; color:var(--muted); }
+  .line { display:flex; gap:8px; padding:4px 0; border-top:1px solid var(--line); }
+  .line b { min-width:84px; font-weight:600; }
+  .line.ok span { color:var(--ok); } .line.bad span { color:var(--bad); }
+</style>
+</head>
+<body>
+  <h1>0단계 PoC</h1>
+  <p>쿠키 파일 없이 이 브라우저의 네이버 로그인으로 통계 API를 부르고, SQLite 저장이 유지되는지 확인합니다. 요청은 6회입니다.</p>
+  <button id="run">PoC 실행</button>
+  <div id="status"></div>
+  <div id="out"></div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
