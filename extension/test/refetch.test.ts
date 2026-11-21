@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { memoryDb, type NodeSql } from './node-sql.js';
-import { S, estimateRound, planRound, runCollection, type CollectorDeps } from '../src/core/collector.js';
+import { RANGE_DAYS, S, estimateRound, planRound, runCollection, type CollectorDeps } from '../src/core/collector.js';
 import { MetricJob, type MetricPlan, type StatGetter } from '../src/core/metric-job.js';
 import { StatClient } from '../src/core/naver.js';
 import { ALL } from '../src/core/specs.js';
@@ -59,7 +59,7 @@ function server() {
 const visits = async (sql: NodeSql, date: string) =>
   Number((await sql.query('SELECT visits FROM referrer_daily WHERE stat_date = ?', [date]))[0]?.visits);
 
-/** 첫 30일 보충(유입경로 30 + 지표 수백 회)이 기본 상한 300에 걸리지 않게 넉넉히 둔다. */
+/** 첫 보충(유입경로 RANGE_DAYS + 지표 수백 회)이 기본 상한 300에 걸리지 않게 넉넉히 둔다. */
 async function db(): Promise<NodeSql> {
   const sql = await memoryDb();
   await setSetting(sql, S.dailyCap, '5000');
@@ -70,7 +70,7 @@ test('지금 수집(어제 다시 받기): 이미 있는 어제를 다시 받아
   const sql = await db();
   const srv = server();
   assert.equal((await runCollection(srv.deps(sql))).outcome, 'done'); // 자동: 30일 채움
-  assert.equal(srv.referer().length, 30);
+  assert.equal(srv.referer().length, RANGE_DAYS);
   const before20 = await visits(sql, YESTERDAY);
   const before19 = await visits(sql, '2026-11-19');
 
@@ -186,10 +186,10 @@ test('상세 URL: 새로 받는 날짜는 유입경로와 함께 검색 아닌 �
   const srv = server();
   const r = await runCollection(srv.deps(sql));
   assert.equal(r.outcome, 'done');
-  assert.equal(urlRequests(srv).length, 30);
+  assert.equal(urlRequests(srv).length, RANGE_DAYS);
   assert.deepEqual(urlRequests(srv)[0], [YESTERDAY, '0', '사이트E']);
-  assert.equal(r.saved.REFERER_URL, 30);
-  assert.equal(Number((await sql.query('SELECT COUNT(*) AS n FROM referrer_url_daily'))[0]?.n), 30);
+  assert.equal(r.saved.REFERER_URL, RANGE_DAYS);
+  assert.equal(Number((await sql.query('SELECT COUNT(*) AS n FROM referrer_url_daily'))[0]?.n), RANGE_DAYS);
   assert.deepEqual((await planRound(sql, TODAY, 0)).urlDates, [], '다 받았으면 보충할 날짜 없음');
 });
 
@@ -226,7 +226,7 @@ test('상세 URL: 실패한 날은 받은 날로 남기지 않아 다음 회차�
     }),
   };
   const r = await runCollection(failing);
-  assert.equal(r.failures >= 30, true);
-  assert.equal(Number((await sql.query('SELECT COUNT(*) AS n FROM referrer_daily'))[0]?.n), 30, '유입경로는 저장');
-  assert.equal((await planRound(sql, TODAY, 0)).urlDates.length, 30, '상세 URL은 다음 회차 보충 대상');
+  assert.equal(r.failures >= RANGE_DAYS, true);
+  assert.equal(Number((await sql.query('SELECT COUNT(*) AS n FROM referrer_daily'))[0]?.n), RANGE_DAYS, '유입경로는 저장');
+  assert.equal((await planRound(sql, TODAY, 0)).urlDates.length, RANGE_DAYS, '상세 URL은 다음 회차 보충 대상');
 });

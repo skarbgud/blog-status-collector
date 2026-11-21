@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { memoryDb, type NodeSql } from './node-sql.js';
-import { S, runCollection, type CollectorDeps } from '../src/core/collector.js';
+import { RANGE_DAYS, S, runCollection, type CollectorDeps } from '../src/core/collector.js';
 import { StatClient } from '../src/core/naver.js';
 import { getSetting, setSetting } from '../src/core/sql.js';
 
@@ -103,7 +103,7 @@ test('처음 수집한 블로그와 다른 계정이면 user-info 뒤 아무것�
   assert.equal(await count(sql, 'SELECT COUNT(*) AS n FROM referrer_daily'), 0);
 });
 
-test('전체 회차: 블로그를 묶고, 유입경로 30일을 최신순으로 받고, 오늘 다시 돌면 요청 0회', async () => {
+test('전체 회차: 블로그를 묶고, 유입경로 저장 범위(RANGE_DAYS)를 최신순으로 받고, 오늘 다시 돌면 요청 0회', async () => {
   const sql = await memoryDb();
   await setSetting(sql, S.dailyCap, '5000');
   const srv = server();
@@ -112,15 +112,15 @@ test('전체 회차: 블로그를 묶고, 유입경로 30일을 최신순으로 
   assert.equal(await getSetting(sql, S.blogId), 'me');
   assert.equal(srv.urls[0]!.pathname, '/api/blog/user-info');
   const dates = refererDates(srv);
-  assert.equal(dates.length, 30);
+  assert.equal(dates.length, RANGE_DAYS);
   assert.equal(dates[0], '2026-11-20');
-  assert.equal(dates[29], '2026-10-22');
-  assert.equal(await count(sql, 'SELECT COUNT(DISTINCT stat_date) AS n FROM referrer_daily'), 30);
+  assert.equal(dates[RANGE_DAYS - 1], '2026-08-23'); // 90일: 11/20부터 거슬러
+  assert.equal(await count(sql, 'SELECT COUNT(DISTINCT stat_date) AS n FROM referrer_daily'), RANGE_DAYS);
   assert.ok(r.failures > 0, '지표는 404라 실패로 센다');
   assert.match(r.message, /실패 \d+건은 내일/);
   // 회차 기록과 원문 보관(user-info는 남기지 않는다)
   assert.equal(await count(sql, 'SELECT requests AS n FROM run_log'), srv.urls.length);
-  assert.equal(await count(sql, 'SELECT COUNT(*) AS n FROM raw_response'), 30);
+  assert.equal(await count(sql, 'SELECT COUNT(*) AS n FROM raw_response'), RANGE_DAYS);
   assert.equal(await count(sql, "SELECT COUNT(*) AS n FROM raw_response WHERE path LIKE '%user-info%' OR body LIKE '%baUserKey%'"), 0);
 
   // 같은 실패만 남았으면(지표 404) 그날은 다시 돌지 않는다
@@ -140,7 +140,7 @@ test('상한 기본값은 없음: 회차 클라이언트 상한이 무한대다'
   const r = await runCollection({ ...d, makeClient: (max) => { seen.push(max); return make(max); } });
   assert.notEqual(r.outcome, 'cap-reached', r.message);
   assert.deepEqual(seen, [Number.POSITIVE_INFINITY]);
-  assert.equal(refererDates(srv).length, 30);
+  assert.equal(refererDates(srv).length, RANGE_DAYS);
 });
 
 test('오늘 끝났어도 새 할 일이 생기면(빠진 날짜) 자동 회차가 다시 돈다. 받을 게 없으면 요청 0회', async () => {
@@ -149,7 +149,7 @@ test('오늘 끝났어도 새 할 일이 생기면(빠진 날짜) 자동 회차�
   const r = await runCollection(deps(sql, srv));
   assert.equal(r.outcome, 'done', r.message);
 
-  assert.equal(await count(sql, 'SELECT COUNT(*) AS n FROM referrer_url_daily'), 30);
+  assert.equal(await count(sql, 'SELECT COUNT(*) AS n FROM referrer_url_daily'), RANGE_DAYS);
   const before = srv.urls.length;
   assert.equal((await runCollection(deps(sql, srv, { now: later(1) }))).outcome, 'up-to-date');
   assert.equal(srv.urls.length, before);
@@ -159,7 +159,7 @@ test('오늘 끝났어도 새 할 일이 생기면(빠진 날짜) 자동 회차�
   await sql.query("DELETE FROM collection_state WHERE stat_date = '2026-11-10'");
   const r2 = await runCollection(deps(sql, srv, { now: later(1.5) }));
   assert.equal(r2.outcome, 'done', r2.message);
-  assert.deepEqual(refererDates(srv).slice(30), ['2026-11-10']);
+  assert.deepEqual(refererDates(srv).slice(RANGE_DAYS), ['2026-11-10']);
 });
 
 test('다음 날에는 새 어제 하루만 유입경로를 받는다', async () => {

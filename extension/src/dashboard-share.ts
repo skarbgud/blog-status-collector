@@ -12,7 +12,7 @@
   /** 배포된 보기 페이지(Netlify, 저장소 루트 netlify.toml). 다른 곳에 올렸으면 설정에서 바꾼다. */
   const DEFAULT_VIEWER = 'https://blog-status-collector.netlify.app/';
   /** 공유를 보관하는 일수. 지나면 사이트가 지운다(share-sweep). */
-  const KEEP_DAYS = 30;
+  const KEEP_DAYS = 90;
 
   interface MyShare { id: string; deleteToken: string; link: string; from: string; to: string; createdAt: string; expiresAt: string }
 

@@ -37,7 +37,7 @@ test('공유 API: 인증 없이 누구나 저장하고, 삭제 토큰 자체는 
   const store = memoryStore();
   const r = await upload(store);
   assert.match(r.id, /^[A-Za-z0-9_-]{16}$/);
-  assert.equal(r.expiresAt, later(30).toISOString(), '기본 30일');
+  assert.equal(r.expiresAt, later(90).toISOString(), '기본 90일');
   assert.equal(store.size(), 1);
   assert.ok(!JSON.stringify(await store.meta(r.id)).includes(r.deleteToken));
 });
@@ -82,7 +82,7 @@ test('공유 API: 크기·일수·번호 형식을 검사한다', async () => {
   assert.equal((await handleShare(post(bytes(MAX_BYTES + 1)), store, {}, NOW)).status, 413);
   assert.equal((await handleShare(post(new Uint8Array(0)), store, {}, NOW)).status, 400);
   assert.equal((await handleShare(post(bytes(10), '?days=0'), store, {}, NOW)).status, 400);
-  assert.equal((await handleShare(post(bytes(10), '?days=31'), store, {}, NOW)).status, 400);
+  assert.equal((await handleShare(post(bytes(10), '?days=91'), store, {}, NOW)).status, 400);
   assert.equal((await upload(store, '?days=7')).expiresAt, later(7).toISOString());
   for (const bad of ['/api/share/../x', '/api/share/short', '/api/share/' + 'a'.repeat(17), '/api/other']) {
     assert.equal((await handleShare(new Request(url(bad)), store, {}, NOW)).status, 404, bad);

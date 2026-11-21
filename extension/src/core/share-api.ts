@@ -4,7 +4,7 @@
 //   GET    /api/share/<id>       암호문(만료됐으면 지우고 404)
 //   DELETE /api/share/<id>       X-Delete-Token이 맞으면 삭제
 // 확장을 설치한 누구나 공유할 수 있게 인증은 없다(2026-11-21 결정). 대신 남용을 막는다:
-//   공유 하나 1MB 이하, 보관 최대 30일, 하루 전체 업로드 500건(카운터), IP당 3분에 5회(Netlify rateLimit, 함수 설정),
+//   공유 하나 1MB 이하, 보관 최대 90일, 하루 전체 업로드 500건(카운터), IP당 3분에 5회(Netlify rateLimit, 함수 설정),
 //   긴급 정지(환경변수 SHARE_UPLOADS=off). 넘치면 과금이 아니라 거절·일시 정지다(무료 요금제).
 
 export interface ShareMeta {
@@ -33,8 +33,8 @@ export interface ShareEnv {
 }
 
 export const MAX_BYTES = 1024 * 1024;
-export const DEFAULT_DAYS = 30;
-export const MAX_DAYS = 30;
+export const DEFAULT_DAYS = 90;
+export const MAX_DAYS = 90;
 export const DAILY_CAP = 500;
 export const ID_PATTERN = /^[A-Za-z0-9_-]{16}$/;
 
