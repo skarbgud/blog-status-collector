@@ -80,6 +80,7 @@
   /* 화면 폭이 아니라 본문 폭 기준: 3단일 때 본문이 좁아지면 도넛과 순위를 세로로 쌓는다 */
   @container (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
   .chart-box { position: relative; height: 280px; }
+  .chart-box > .chart { width: 100%; height: 100%; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
   th:not(:first-child), td:not(:first-child) { text-align: right; }
@@ -157,6 +158,7 @@
   .two-lists { display: grid; grid-template-columns: 1fr; gap: 14px; }
   .two-lists h3 { font-size: 13px; margin: 0 0 4px; }
 .status a { color: inherit; text-underline-offset: 2px; }
+@media (max-width: 600px) { .chart-box:has(#share) { height: 440px; } }
 </style>
 </head>
 <body>
@@ -209,13 +211,13 @@
 
   <div class="panel">
     <h2>일별 방문 추이</h2>
-    <div class="chart-box"><canvas id="daily"></canvas></div>
+    <div class="chart-box"><div id="daily" class="chart"></div></div>
   </div>
 
   <div class="grid2">
     <div class="panel">
       <h2>유입처 비율 (상위 10)</h2>
-      <div class="chart-box"><canvas id="share"></canvas></div>
+      <div class="chart-box"><div id="share" class="chart"></div></div>
     </div>
     <div class="panel">
       <h2>유입처 순위</h2>
@@ -242,19 +244,19 @@
 
     <div class="panel">
       <h2>조회수 추이<span class="sub">이웃 구분별</span></h2>
-      <div class="chart-box"><canvas id="m-views"></canvas></div>
+      <div class="chart-box"><div id="m-views" class="chart"></div></div>
       <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
     </div>
 
     <div class="grid2">
       <div class="panel">
         <h2>조회수·방문횟수·순방문자</h2>
-        <div class="chart-box short"><canvas id="m-visits"></canvas></div>
+        <div class="chart-box short"><div id="m-visits" class="chart"></div></div>
         <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
       </div>
       <div class="panel">
         <h2>평균 사용시간<span class="sub">분</span></h2>
-        <div class="chart-box short"><canvas id="m-dur"></canvas></div>
+        <div class="chart-box short"><div id="m-dur" class="chart"></div></div>
         <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
       </div>
     </div>
@@ -262,12 +264,12 @@
     <div class="grid2">
       <div class="panel">
         <h2>이웃 증감</h2>
-        <div class="chart-box short"><canvas id="m-delta"></canvas></div>
+        <div class="chart-box short"><div id="m-delta" class="chart"></div></div>
         <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
       </div>
       <div class="panel">
         <h2>방문자 구분<span class="sub">조회수 기준</span></h2>
-        <div class="chart-box short"><canvas id="m-rel"></canvas></div>
+        <div class="chart-box short"><div id="m-rel" class="chart"></div></div>
         <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
       </div>
     </div>
@@ -275,7 +277,7 @@
     <div class="grid2">
       <div class="panel">
         <h2>시간대별 조회수<span class="sub" id="m-hour-sub">일평균</span></h2>
-        <div class="chart-box short"><canvas id="m-hour"></canvas></div>
+        <div class="chart-box short"><div id="m-hour" class="chart"></div></div>
         <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
       </div>
       <div class="panel">
@@ -287,7 +289,7 @@
           <button data-m="DEMO_ETC">이웃 아님</button>
           <button data-m="REL_DEMO_ADD" title="이웃으로 추가한 사람들의 성별·연령(주간)">이웃 추가(주간)</button>
         </div>
-        <div class="chart-box short"><canvas id="m-demo"></canvas></div>
+        <div class="chart-box short"><div id="m-demo" class="chart"></div></div>
         <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
         <p class="note" id="m-demo-gap" hidden></p>
         <p class="note">연령 구간 이름은 응답의 코드(01~11)를 네이버의 일반적인 11개 구간으로 풀어 쓴 것입니다.</p>
@@ -300,14 +302,14 @@
         <select id="m-ht-select" aria-label="시간대 선택" style="flex:0 0 auto;min-width:110px"></select>
         <span class="post-info">고른 시간대의 하루 조회수입니다. 위 '시간대별 조회수'는 기간 평균, 여기는 날짜별 변화입니다.</span>
       </div>
-      <div class="chart-box short"><canvas id="m-ht"></canvas></div>
+      <div class="chart-box short"><div id="m-ht" class="chart"></div></div>
       <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
     </div>
 
     <div class="grid2">
       <div class="panel">
         <h2>기기별 분포</h2>
-        <div class="chart-box short"><canvas id="m-device"></canvas></div>
+        <div class="chart-box short"><div id="m-device" class="chart"></div></div>
         <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
       </div>
       <div class="panel">
@@ -338,7 +340,7 @@
         <select id="m-post-select" aria-label="게시글 선택"></select>
         <span class="post-info" id="m-post-info"></span>
       </div>
-      <div class="chart-box short"><canvas id="m-post"></canvas></div>
+      <div class="chart-box short"><div id="m-post" class="chart"></div></div>
       <div class="empty-note" hidden>이 기간에 수집된 게시글별 조회수가 없습니다.</div>
     </div>
 
@@ -357,7 +359,7 @@
     <div class="grid2">
       <div class="panel">
         <h2>주제별 조회수</h2>
-        <div class="chart-box short"><canvas id="m-subject"></canvas></div>
+        <div class="chart-box short"><div id="m-subject" class="chart"></div></div>
         <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
       </div>
       <div class="panel">
@@ -372,7 +374,7 @@
     <div class="grid2">
       <div class="panel">
         <h2>일간 공감·댓글·재생수<span class="sub" id="m-daily-sub"></span></h2>
-        <div class="chart-box short"><canvas id="m-daily"></canvas></div>
+        <div class="chart-box short"><div id="m-daily" class="chart"></div></div>
         <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
       </div>
       <div class="panel">
@@ -428,7 +430,9 @@
 </aside>
 </div>
 
-<script src="vendor/chart.umd.js"></script>
+<script src="vendor/highcharts/highcharts.js"></script>
+<script src="vendor/highcharts/accessibility.js"></script>
+<script src="charts.js"></script>
 <script src="dashboard-api.js"></script>
 <script src="dashboard-main.js"></script>
 <script src="dashboard-trends.js"></script>

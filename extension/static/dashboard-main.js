@@ -30,40 +30,23 @@
     $('c-ratio').textContent = summary.searchRatio.toFixed(1) + '%';
     $('c-days').textContent = summary.collectedDays + ' / ' + summary.totalDays + '일';
 
-    const c1 = css('--c1'), c2 = css('--c2'), grid = css('--grid'), muted = css('--muted');
+    const c1 = css('--c1'), c2 = css('--c2');
     if (dailyChart) dailyChart.destroy();
-    dailyChart = new Chart($('daily'), {
-      type: 'line',
-      data: {
-        labels: daily.map((d) => d.date.slice(5)),
-        datasets: [
-          { label: '전체', data: daily.map((d) => d.visits), borderColor: c1, backgroundColor: c1,
-            tension: .25, spanGaps: false, pointRadius: 2 },
-          { label: '검색', data: daily.map((d) => d.searchVisits), borderColor: c2, backgroundColor: c2,
-            tension: .25, spanGaps: false, pointRadius: 2 },
-        ],
-      },
-      options: {
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        scales: {
-          x: { grid: { color: grid }, ticks: { color: muted, maxTicksLimit: 10 } },
-          y: { beginAtZero: true, grid: { color: grid }, ticks: { color: muted } },
-        },
-        plugins: { legend: { labels: { color: muted } } },
-      },
+    dailyChart = BlogCharts.draw($('daily'), {
+      kind: 'line', title: '일별 방문 추이',
+      categories: daily.map((d) => d.date.slice(5)),
+      series: [
+        { name: '전체', data: daily.map((d) => d.visits), color: c1 },
+        { name: '검색', data: daily.map((d) => d.searchVisits), color: c2 },
+      ],
     });
 
     const palette = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626',
                      '#0891b2', '#65a30d', '#db2777', '#4b5563', '#ca8a04'];
     if (shareChart) shareChart.destroy();
-    shareChart = new Chart($('share'), {
-      type: 'doughnut',
-      data: {
-        labels: referrers.map((r) => r.name),
-        datasets: [{ data: referrers.map((r) => r.visits), backgroundColor: palette, borderWidth: 0 }],
-      },
-      options: { maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: muted } } } },
+    shareChart = BlogCharts.draw($('share'), {
+      kind: 'donut', title: '유입처 비율',
+      series: [{ name: '방문', data: referrers.map((r, i) => ({ name: r.name, y: r.visits, color: palette[i % palette.length] })) }],
     });
 
     // 유입처 이름은 외부 값이므로 innerHTML을 쓰지 않고 textContent로만 넣는다.

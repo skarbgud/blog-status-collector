@@ -34,7 +34,9 @@
 | `offscreen` | 수집 루프와 SQLite 워커를 서비스 워커 수명 제약 없이 실행 |
 | `unlimitedStorage` | 브라우저가 공간 부족 때 데이터를 지우지 않게 |
 
-원격 코드는 없다(sqlite-wasm, Chart.js 모두 번들). 분석 도구·원격 로그도 없다.
+원격 코드는 없다(sqlite-wasm, Highcharts 모두 번들). 분석 도구·원격 로그도 없다.
+
+**차트 라이브러리 라이선스**: Highcharts는 상용 라이선스이고 **개인·비상업 용도에 한해 무료**다(www.highcharts.com/license). 이 확장을 상업적으로 쓰거나 배포하려면 라이선스를 사야 한다. 차트 아래 "Highcharts.com" 표시는 그대로 둔다.
 
 ## Java(v1)에서 옮기기
 1. 이전 수집기 폴더에서 `./gradlew exportJson` → `data/export/blogstat-export.json`

@@ -13,6 +13,7 @@
   - 원격 코드 금지(라이브러리는 번들). 데이터를 브라우저 밖으로 보내지 않는다(분석·원격 로그 없음).
   - 이식한 동작을 바꾸면 Java 골든(`extension/test/golden`)과 맞는지 먼저 본다. 조회 계층은 `tools/parity.ts`로 Java 대시보드와 대조한다.
   - 대시보드 화면 `static/dashboard*.{html,js}`은 Java `static/index.html`에서 옮겼다(인라인 스크립트만 파일로 분리). 화면을 고치면 이 파일들을 고친다.
+  - 차트는 Highcharts(개인·비상업 무료, 상업 이용은 라이선스 필요)이고 `static/charts.js`의 `BlogCharts.draw(el, spec)`로만 그린다. 테마·숫자 형식·반응형 규칙은 그 파일 한 곳에 있다. 외부 값(유입처·주제 이름)은 그 안에서 이스케이프한다.
 
 ## 스택
 - Java 17, Spring Boot 3.5, Gradle, Spring Data JPA, H2(파일 모드), Playwright for Java

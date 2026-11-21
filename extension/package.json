@@ -16,6 +16,6 @@
   },
   "dependencies": {
     "@sqlite.org/sqlite-wasm": "3.53.4-build2",
-    "chart.js": "4.4.1"
+    "highcharts": "13.1.1"
   }
 }

@@ -45,30 +45,15 @@
     return m;
   }
 
-  function setEmpty(canvasId, empty) {
-    const box = $(canvasId).parentElement;
+  function setEmpty(chartId, empty) {
+    const box = $(chartId).parentElement;
     box.hidden = empty;
     box.nextElementSibling.hidden = !empty;
   }
-  function draw(id, hasData, config) {
+  function draw(id, hasData, spec) {
     if (charts[id]) { charts[id].destroy(); delete charts[id]; }
     setEmpty(id, !hasData);
-    if (hasData) charts[id] = new Chart($(id), config);
-  }
-  function baseOptions(extra) {
-    const grid = css('--grid'), muted = css('--muted');
-    return Object.assign({
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      scales: {
-        x: { grid: { color: grid }, ticks: { color: muted, maxTicksLimit: 10 } },
-        y: { beginAtZero: true, grid: { color: grid }, ticks: { color: muted } },
-      },
-      plugins: { legend: { labels: { color: muted } } },
-    }, extra || {});
-  }
-  function pieOptions() {
-    return { maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: css('--muted') } } } };
+    if (hasData) charts[id] = BlogCharts.draw($(id), spec);
   }
 
   function td(text, cls) {
@@ -179,48 +164,41 @@
   }
 
   function renderTimeCharts(items, dates) {
-    const labels = dates.map((d) => d.slice(5));
+    const categories = dates.map((d) => d.slice(5));
     const at = (m) => dates.map((d) => (m.has(d) ? m.get(d) : null));
 
-    const relSets = REL.map(([col, name], i) => ({
-      label: name, data: at(series(items, 'VIEWS', col)), backgroundColor: PALETTE[i], borderWidth: 0,
-    }));
     const hasViews = series(items, 'VIEWS', 'total').size > 0;
-    const stacked = baseOptions();
-    stacked.scales.x.stacked = true;
-    stacked.scales.y.stacked = true;
-    draw('m-views', hasViews, { type: 'bar', data: { labels, datasets: relSets }, options: stacked });
+    draw('m-views', hasViews, { kind: 'column', stacked: true, categories, title: '조회수(이웃 구분별)',
+      series: REL.map(([col, name], i) => ({ name, data: at(series(items, 'VIEWS', col)), color: PALETTE[i] })) });
 
-    const line = (label, data, color) => ({ label, data, borderColor: color, backgroundColor: color,
-                                            tension: .25, spanGaps: false, pointRadius: 2 });
     const vs = series(items, 'VISITS', 'visit');
     const uv = uvSeries(items);
     const vw = series(items, 'VIEWS', 'total');
-    draw('m-visits', hasViews || vs.size > 0, { type: 'line', data: { labels, datasets: [
-      line('조회수', at(vw), PALETTE[0]), line('방문횟수', at(vs), PALETTE[1]), line('순방문자', at(uv), PALETTE[2]),
-    ] }, options: baseOptions() });
+    draw('m-visits', hasViews || vs.size > 0, { kind: 'line', fill: false, categories, title: '조회수·방문횟수·순방문자',
+      series: [
+        { name: '조회수', data: at(vw), color: PALETTE[0] },
+        { name: '방문횟수', data: at(vs), color: PALETTE[1] },
+        { name: '순방문자', data: at(uv), color: PALETTE[2] },
+      ] });
 
     const dur = series(items, 'DURATION', 'total');
-    const durOpts = baseOptions({ plugins: { legend: { display: false }, tooltip: { callbacks: {
-      label: (c) => '평균 사용시간: ' + fmtDur(c.parsed.y * 60) } } } });
-    draw('m-dur', dur.size > 0, { type: 'line', data: { labels, datasets: [
-      line('평균 사용시간(분)', dates.map((d) => (dur.has(d) ? dur.get(d) / 60 : null)), PALETTE[3]),
-    ] }, options: durOpts });
+    draw('m-dur', dur.size > 0, { kind: 'line', categories, legend: false, decimals: true, title: '평균 사용시간',
+      valueFormat: (v) => fmtDur(v * 60), axisFormat: (v) => nf1.format(v) + '분',
+      series: [{ name: '평균 사용시간', data: dates.map((d) => (dur.has(d) ? dur.get(d) / 60 : null)), color: PALETTE[3] }] });
 
     const add = series(items, 'RELATION_DELTA', 'add');
     const del = series(items, 'RELATION_DELTA', 'delete');
     const req = series(items, 'RELATION_DELTA', 'friend');
-    const deltaOpts = baseOptions();
-    deltaOpts.scales.y.beginAtZero = false;
-    draw('m-delta', add.size > 0, { type: 'bar', data: { labels, datasets: [
-      { label: '이웃 추가', data: at(add), backgroundColor: PALETTE[1], borderWidth: 0 },
-      { label: '이웃 삭제', data: dates.map((d) => (del.has(d) ? -del.get(d) : null)), backgroundColor: PALETTE[4], borderWidth: 0 },
-      Object.assign(line('서로이웃 신청', at(req), PALETTE[0]), { type: 'line' }),
-    ] }, options: deltaOpts });
+    draw('m-delta', add.size > 0, { kind: 'column', yMin: null, categories, title: '이웃 증감',
+      series: [
+        { name: '이웃 추가', data: at(add), color: PALETTE[1] },
+        { name: '이웃 삭제', data: dates.map((d) => (del.has(d) ? -del.get(d) : null)), color: PALETTE[4] },
+        { name: '서로이웃 신청', data: at(req), color: PALETTE[0], type: 'line' },
+      ] });
 
     const relSum = REL.map(([col]) => sum([...series(items, 'VIEWS', col).values()]));
-    draw('m-rel', sum(relSum) > 0, { type: 'doughnut', data: { labels: REL.map((r) => r[1]),
-      datasets: [{ data: relSum, backgroundColor: PALETTE.slice(0, 3), borderWidth: 0 }] }, options: pieOptions() });
+    draw('m-rel', sum(relSum) > 0, { kind: 'donut', title: '이웃 구분별 조회수',
+      series: [{ name: '조회수', data: REL.map((r, i) => ({ name: r[1], y: relSum[i], color: PALETTE[i] })) }] });
   }
 
   /** 성별·연령. demoMode가 정한 지표(전체, 이웃 구분별, 이웃 추가한 사람)의 기간 합계. */
@@ -241,10 +219,11 @@
       gapNote.hidden = true;
     }
     $('m-demo-sub').textContent = mTotal + fTotal > 0 ? '남 ' + pct(mTotal, mTotal + fTotal) + ' · 여 ' + pct(fTotal, mTotal + fTotal) : '';
-    draw('m-demo', mTotal + fTotal > 0, { type: 'bar', data: { labels: AGES, datasets: [
-      { label: '남성', data: codes.map((c) => men.get(c) || 0), backgroundColor: PALETTE[0], borderWidth: 0 },
-      { label: '여성', data: codes.map((c) => women.get(c) || 0), backgroundColor: PALETTE[4], borderWidth: 0 },
-    ] }, options: baseOptions() });
+    draw('m-demo', mTotal + fTotal > 0, { kind: 'column', categories: AGES, title: '성별·연령별 분포',
+      series: [
+        { name: '남성', data: codes.map((c) => men.get(c) || 0), color: PALETTE[0] },
+        { name: '여성', data: codes.map((c) => women.get(c) || 0), color: PALETTE[4] },
+      ] });
   }
 
   function renderDistributions(items) {
@@ -253,18 +232,17 @@
     const hours = sumByKey(items, 'HOUR', 'cv');
     const hourLabels = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
     $('m-hour-sub').textContent = hourDays.size ? hourDays.size + '일 평균' : '';
-    draw('m-hour', hourDays.size > 0, { type: 'bar', data: { labels: hourLabels.map((h) => h + '시'),
-      datasets: [{ label: '일평균 조회수', data: hourLabels.map((h) => (hours.get(h) || 0) / Math.max(1, hourDays.size)),
-        backgroundColor: PALETTE[0], borderWidth: 0 }] },
-      options: baseOptions({ plugins: { legend: { display: false } } }) });
+    draw('m-hour', hourDays.size > 0, { kind: 'column', legend: false, decimals: true, categories: hourLabels.map((h) => h + '시'),
+      title: '시간대별 일평균 조회수',
+      series: [{ name: '일평균 조회수', data: hourLabels.map((h) => (hours.get(h) || 0) / Math.max(1, hourDays.size)), color: PALETTE[0] }] });
 
     renderDemo(items);
 
     // 기기: DEVICE 'total' 행이 전체 합계다
     let pc = 0, mobile = 0;
     for (const it of items) if (it.metric === 'DEVICE' && it.key === 'total') { pc += it.values.pc || 0; mobile += it.values.mobile || 0; }
-    draw('m-device', pc + mobile > 0, { type: 'doughnut', data: { labels: ['모바일', 'PC'],
-      datasets: [{ data: [mobile, pc], backgroundColor: [PALETTE[0], PALETTE[2]], borderWidth: 0 }] }, options: pieOptions() });
+    draw('m-device', pc + mobile > 0, { kind: 'donut', title: '기기별 분포',
+      series: [{ name: '조회수', data: [{ name: '모바일', y: mobile, color: PALETTE[0] }, { name: 'PC', y: pc, color: PALETTE[2] }] }] });
 
     // 국가
     const countries = [...sumByKey(items, 'COUNTRY', 'cv').entries()].sort((a, b) => b[1] - a[1]);
@@ -282,9 +260,8 @@
     for (const it of items) if (it.metric === 'RANK_SUBJECT')
       subjects.set(it.values.dimension1, (subjects.get(it.values.dimension1) || 0) + (it.values.cv || 0));
     const sub = [...subjects.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
-    draw('m-subject', sub.length > 0, { type: 'bar', data: { labels: sub.map((s) => s[0]),
-      datasets: [{ label: '조회수', data: sub.map((s) => s[1]), backgroundColor: PALETTE[1], borderWidth: 0 }] },
-      options: baseOptions({ indexAxis: 'y', plugins: { legend: { display: false } } }) });
+    draw('m-subject', sub.length > 0, { kind: 'bar', legend: false, categories: sub.map((s) => s[0]), title: '주제별 조회수',
+      series: [{ name: '조회수', data: sub.map((s) => s[1]), color: PALETTE[1] }] });
   }
 
   function renderRanks(items) {
@@ -341,10 +318,8 @@
     const shares = [...days.values()].filter((v) => v.cv_daily > 0).map((v) => v.cv * 100 / v.cv_daily);
     $('m-ht-sub').textContent = selectedHour + '시 · 기간 합계 ' + nf.format(totals.get(selectedHour)) + '회'
       + (shares.length ? ' · 하루 중 평균 ' + nf1.format(sum(shares) / shares.length) + '%' : '');
-    draw('m-ht', true, { type: 'bar', data: { labels: dates.map((d) => d.slice(5)), datasets: [
-      { label: selectedHour + '시 조회수', data: dates.map((d) => (days.has(d) ? days.get(d).cv : null)),
-        backgroundColor: PALETTE[5], borderWidth: 0 },
-    ] }, options: baseOptions({ plugins: { legend: { display: false } } }) });
+    draw('m-ht', true, { kind: 'column', legend: false, categories: dates.map((d) => d.slice(5)), title: '시간대별 일별 추이',
+      series: [{ name: selectedHour + '시 조회수', data: dates.map((d) => (days.has(d) ? days.get(d).cv : null)), color: PALETTE[5] }] });
   }
 
   /** ARTICLE_INFO(게시글 번호 → 제목·주소·누적 수치). 응답에는 가장 최근 수집분이 들어 있다. */
@@ -419,10 +394,8 @@
       }
     }
     if (!cur) { draw('m-post', false, null); return; }
-    draw('m-post', true, { type: 'bar', data: { labels: dates.map((d) => d.slice(5)), datasets: [
-      { label: '조회수', data: dates.map((d) => (cur.days.has(d) ? cur.days.get(d) : null)),
-        backgroundColor: PALETTE[0], borderWidth: 0 },
-    ] }, options: baseOptions({ plugins: { legend: { display: false } } }) });
+    draw('m-post', true, { kind: 'column', legend: false, categories: dates.map((d) => d.slice(5)), title: '게시글 일별 조회수',
+      series: [{ name: '조회수', data: dates.map((d) => (cur.days.has(d) ? cur.days.get(d) : null)), color: PALETTE[0] }] });
   }
 
   /** 일간 현황: 그 날의 공감수·댓글수·재생수 합계(dashboard 블록). 값이 문자열로 올 수 있어 숫자로 바꾼다. */
@@ -433,11 +406,12 @@
     const like = dates.map((d) => num(d, 'dailyLike')), cmt = dates.map((d) => num(d, 'dailyComment')),
       play = dates.map((d) => num(d, 'dailyPlayCount'));
     $('m-daily-sub').textContent = by.size ? '공감 ' + nf.format(sum(like)) + ' · 댓글 ' + nf.format(sum(cmt)) + ' · 재생 ' + nf.format(sum(play)) : '';
-    draw('m-daily', by.size > 0, { type: 'bar', data: { labels: dates.map((d) => d.slice(5)), datasets: [
-      { label: '공감', data: like, backgroundColor: PALETTE[4], borderWidth: 0 },
-      { label: '댓글', data: cmt, backgroundColor: PALETTE[1], borderWidth: 0 },
-      { label: '재생', data: play, backgroundColor: PALETTE[0], borderWidth: 0 },
-    ] }, options: baseOptions() });
+    draw('m-daily', by.size > 0, { kind: 'column', categories: dates.map((d) => d.slice(5)), title: '일간 현황',
+      series: [
+        { name: '공감', data: like, color: PALETTE[4] },
+        { name: '댓글', data: cmt, color: PALETTE[1] },
+        { name: '재생', data: play, color: PALETTE[0] },
+      ] });
   }
 
   function renderVideo(items) {
