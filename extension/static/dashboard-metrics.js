@@ -465,6 +465,9 @@
 
   function render(view) {
     lastView = view;
+    // 독자가 오는 시간(dashboard-hours.js)이 같은 응답을 다시 쓴다(추가 조회 없음).
+    window.blogMetricsView = view;
+    window.dispatchEvent(new CustomEvent('blog:metrics', { detail: view }));
     const dates = isoDays(view.from, view.to);
     $('m-range').textContent = view.from + ' ~ ' + view.to + ' · 지표 ' + view.coverage.length + '종 수집됨';
     renderCards(view.items, dates);

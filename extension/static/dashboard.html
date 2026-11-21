@@ -201,6 +201,7 @@
     .rf-act { grid-column: 3; grid-row: 1; justify-self: end; }
   }
 </style>
+<link rel="stylesheet" href="dashboard-hours.css">
 </head>
 <body>
 <div class="layout">
@@ -370,6 +371,49 @@
       <div class="empty-note" hidden>이 기간에 수집된 데이터가 없습니다.</div>
     </div>
 
+    <!-- 독자가 오는 시간(요일×시간 3D 지형도). dashboard-hours.js, terrain3d.js(three.js) -->
+    <div class="panel" id="m-aud-panel">
+      <h2>독자가 오는 시간<span class="sub" id="m-aud-sub"></span></h2>
+      <div id="m-aud-empty" class="empty-note" hidden>이 기간에 시간대별 조회수가 없습니다.</div>
+      <div id="m-aud-body">
+        <div class="aud-grid">
+          <div>
+            <div class="aud-tools" id="m-aud-3d-tools">
+              <div class="seg" id="m-aud-mode" role="group" aria-label="모양">
+                <button data-v="surface" class="active">지형</button>
+                <button data-v="bars">막대</button>
+              </div>
+              <div class="seg" id="m-aud-value" role="group" aria-label="값">
+                <button data-v="share" class="active">하루 중 비율</button>
+                <button data-v="views">평균 조회수</button>
+              </div>
+              <button class="linkish" id="m-aud-top-view">위에서 보기</button>
+              <button class="linkish" id="m-aud-reset">처음 시점</button>
+            </div>
+            <div class="t3" id="m-aud-3d"></div>
+            <p class="note" id="m-aud-fallback" hidden></p>
+          </div>
+          <div>
+            <h3 style="font-size:13px;margin:0 0 6px">많이 오는 시간 (2시간 단위)</h3>
+            <ol class="aud-top" id="m-aud-top"></ol>
+            <p class="note" id="m-aud-stable"></p>
+            <h3 style="font-size:13px;margin:14px 0 0">요일 지수<span class="sub" style="font-weight:400;color:var(--muted);margin-left:6px">1 = 평균</span></h3>
+            <div class="chart-box short" style="height:180px"><div id="m-aud-index" class="chart"></div></div>
+          </div>
+        </div>
+        <details class="aud-table" id="m-aud-table-box">
+          <summary>표로 보기 · <span id="m-aud-table-unit"></span></summary>
+          <div class="aud-table-scroll">
+            <table class="aud-heat">
+              <thead id="m-aud-table-head"></thead>
+              <tbody id="m-aud-table-body"></tbody>
+            </table>
+          </div>
+        </details>
+        <p class="note">언제 읽히는지를 보여 줍니다. 비율은 그날 조회를 100%로 놓고 나눈 값이라 조회가 많은 날이 평균을 끌지 않습니다. 흐린 요일은 표본이 3주 미만입니다. 초록 테두리는 많이 오는 시간 상위 3개입니다.</p>
+      </div>
+    </div>
+
     <div class="grid2">
       <div class="panel">
         <h2>기기별 분포</h2>
@@ -502,5 +546,6 @@
 <script src="dashboard-trends.js"></script>
 <script src="dashboard-referer.js"></script>
 <script src="dashboard-metrics.js"></script>
+<script type="module" src="dashboard-hours.js"></script>
 </body>
 </html>
