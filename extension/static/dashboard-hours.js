@@ -23,7 +23,8 @@ if (panel) init();
 
 function init() {
   window.addEventListener('blog:metrics', (e) => update(e.detail));
-  if (window.blogMetricsView) update(window.blogMetricsView); // 이 모듈보다 먼저 그려졌으면
+  // 이 모듈보다 먼저 그려졌으면. 모듈 끝까지 평가된 뒤에 그린다(아래 const values 등이 아직 초기화 전이라 바로 부르면 ReferenceError).
+  if (window.blogMetricsView) queueMicrotask(() => update(window.blogMetricsView));
 
   new IntersectionObserver((entries) => {
     if (entries.some((e) => e.isIntersecting) && !visible) {

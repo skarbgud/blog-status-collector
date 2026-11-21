@@ -6,6 +6,7 @@
   "description": "네이버 블로그 통계를 내 브라우저 안에서 수집·저장·조회하는 크롬 확장",
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-static.mjs",
+    "build:viewer": "npm run build && node scripts/build-viewer.mjs",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "test": "tsc -p tsconfig.test.json && node --test build-test/test/"
   },
