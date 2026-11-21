@@ -114,6 +114,16 @@ export const ALL: readonly MetricSpec[] = [
   ARTICLE_CV, ARTICLE_INFO,
 ];
 
+/**
+ * 더는 받지 않는 지표(2026-11-21 요청 수 줄이기). 정의는 남겨 이미 저장된 행을 읽을 수 있게 한다.
+ * - REFERER_SEARCH·REFERER_SITE: 유입경로·검색어 표와 값이 같고 해상도만 낮다(대시보드 미사용)
+ * - RELATION_VISIT: 대시보드 미사용
+ * - HOUR_TREND: HOUR(날짜×시간)와 같은 값이라 화면이 HOUR에서 계산한다(시간대당 요청 24회 절감)
+ */
+export const RETIRED = new Set(['REFERER_SEARCH', 'REFERER_SITE', 'RELATION_VISIT', 'HOUR_TREND']);
+/** 수집기가 실제로 받는 지표. */
+export const COLLECTED: readonly MetricSpec[] = ALL.filter((s) => !RETIRED.has(s.id));
+
 export function findSpec(id: string): MetricSpec | undefined {
   return ALL.find((s) => s.id.toLowerCase() === id.toLowerCase());
 }

@@ -64,6 +64,7 @@
 - `ca5db9a`: 네이버는 속도 제한을 **HTTP 500 + 본문 `{"statusCode":429}`**로 보내기도 한다(동시 6개에서 article/cv, hour/hourCv). `naver.ts` `disguised429`가 이런 500을 429로 바꿔 재시도·감속한다. 다른 500은 그 요청만 실패.
 - `5bfcaa1`: 90일 보기에서 조회수 카드가 30일치(일평균×30)로 보이던 문제. 범위를 30→90일로 늘릴 때 시계열(처음만 전체)·시간대·게시글 추이(어제 행 있으면 건너뜀)는 과거 60일을 채우지 않았다. 수집 3단계 `backfillPlans`가 빈 날짜 구간을 15일 창으로 채운다(2단계 뒤에 계획해 중복 없음). 서비스 평균 비교는 같은 달 기준으로 계산.
 - 수집 로그는 서비스 워커가 아니라 **offscreen 문서 콘솔**에 찍힌다(`chrome://extensions` → 세부정보 → 뷰 검사 `offscreen.html`, 열어 둔 뒤 수집해야 보임).
+- 요청 수 줄이기: 안 쓰는 지표 4종(`RETIRED`) 수집 중단, 시간대별 일별 추이는 `HOUR`에서 계산, 이미 받은 게시글은 최근 순위 글만 최신 창 1개(전에는 매일 순위 글 전부 × 6창).
 - **2026-11-21부터 작업 브랜치 없이 main에서 바로 작업**(사용자 지시). 기능마다 main 커밋·push → v2 폴더 `merge --ff-only origin/main` + push + `npm run build`.
 - 범위 밖으로 남긴 것: ① 대시보드가 안 쓰는 중복 요청 제거(REFERER_SEARCH/SITE, HOUR_TREND는 HOUR로 계산 가능) ② 시간대·게시글별 추이가 매일 90일치를 다시 받는 것으로 보이는 문제(`metric-job.ts` hourUnits/postUnits가 `to` 날짜 키로만 건너뜀, `run_log`로 확인 필요) ③ `raw_response`를 읽는 개발용 재생기 ④ WEEK/MONTH 단위 ⑤ 크리에이터 어드바이저 API(`creator-advisor.naver.com/api/v6/...`, 범위 지정 가능, 요청 서명 헤더 `x-ca-sig`가 필수인지 미확인 — 필수면 약관상 쓰지 않음).
 

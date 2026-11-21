@@ -20,7 +20,7 @@ import {
   buildQuery, kstDate, kstHour, parseBlogId, type StatClient,
 } from './naver.js';
 import { POOL_LIMIT, runPool } from './pool.js';
-import { ALL, SERIES_WINDOW_DAYS, isSeries, type MetricSpec } from './specs.js';
+import { COLLECTED, SERIES_WINDOW_DAYS, isSeries, type MetricSpec } from './specs.js';
 import { deleteSetting, getSetting, setSetting, type Sql } from './sql.js';
 import { SqlMetricStore, SqlRefererStore } from './store.js';
 
@@ -253,9 +253,9 @@ export async function backfillPlans(sql: Sql, today: string): Promise<MetricPlan
   const store = new SqlMetricStore(sql);
   const daily = (s: MetricSpec) => isSeries(s) && s.timeDim === 'DATE';
   const groups: MetricSpec[][] = [
-    ...ALL.filter((s) => daily(s) && !s.perPost && !s.perHour).map((s) => [s]),
-    ALL.filter((s) => s.perHour),
-    ALL.filter((s) => s.perPost),
+    ...COLLECTED.filter((s) => daily(s) && !s.perPost && !s.perHour).map((s) => [s]),
+    COLLECTED.filter((s) => s.perHour),
+    COLLECTED.filter((s) => s.perPost),
   ];
   const plans: MetricPlan[] = [];
   for (const specs of groups) {
@@ -331,21 +331,23 @@ export async function planRound(sql: Sql, today: string, refetchDays: number, op
   }
 
   const plainSeries = (s: MetricSpec) => isSeries(s) && !s.perPost && !s.perHour;
-  const others = ALL.filter((s) => !plainSeries(s));
+  const others = COLLECTED.filter((s) => !plainSeries(s));
   const firstTime = opts.firstTime ?? (await isFirstTime(sql));
   const plans: MetricPlan[] = [];
   if (!opts.rest) {
     // 시계열은 매번 어제를 포함한 15일 창을 받아 덮어쓴다(다시 받는 범위도 그 창 안에 있다).
-    plans.push({ specs: ALL.filter(plainSeries), from: firstTime ? from : (refetchFrom ?? to), to, force: false, today });
+    plans.push({ specs: COLLECTED.filter(plainSeries), from: firstTime ? from : (refetchFrom ?? to), to, force: false, today });
   } else if (firstTime) {
     // 2단계: 1단계가 받은 최신 창(어제까지 15일) 이전만 받는다.
     const before = addDays(to, -SERIES_WINDOW_DAYS);
-    if (before >= from) plans.push({ specs: ALL.filter(plainSeries), from, to: before, force: false, today });
+    if (before >= from) plans.push({ specs: COLLECTED.filter(plainSeries), from, to: before, force: false, today });
   }
   // 다시 받기를 먼저 해서, 뒤의 "빠진 것 채우기"가 같은 날짜를 또 받지 않게 한다.
-  if (refetchFrom !== null) plans.push({ specs: others, from: refetchFrom, to, force: true, today, keepOnPending: true });
+  if (refetchFrom !== null) {
+    plans.push({ specs: others, from: refetchFrom, to, force: true, today, keepOnPending: true, knownPostsLatestOnly: true });
+  }
   const fill = opts.recentDays !== undefined ? others.filter((s) => !s.perPost && !s.perHour) : others;
-  plans.push({ specs: fill, from, to, force: false, today });
+  plans.push({ specs: fill, from, to, force: false, today, knownPostsLatestOnly: true });
   return { from, to, refetchFrom, refererDates, urlDates, plans };
 }
 

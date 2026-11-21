@@ -236,10 +236,9 @@ test('두 단계: 최근 7일을 먼저 받고, 나머지는 이어서 받되 �
   assert.equal(views.length, 6);
   assert.equal(new Set(views).size, 6);
   assert.equal(views[0], '2026-11-20');
-  // 시간대·게시글별 추이는 1단계에서 받지 않는다: 첫 시간대 요청은 마지막 유입경로 날짜보다 뒤에 나온다
-  const firstHour = srv.urls.findIndex((u) => u.pathname === '/api/blog/user/hour/hourCv');
-  const firstOld = srv.urls.findIndex((u) => u.pathname === '/api/blog/daily/referer/total' && u.searchParams.get('startDate') === '2026-11-13');
-  assert.ok(firstHour > firstOld, firstHour + ' > ' + firstOld);
+  // 더는 받지 않는 지표(시간대별 추이, 중복 검색어·사이트, 이웃 방문)는 요청하지 않는다
+  const retired = ['/api/blog/user/hour/hourCv', '/api/blog/user/referer/search', '/api/blog/user/referer/site', '/api/blog/user/relationVisitCv'];
+  assert.deepEqual(srv.urls.filter((u) => retired.includes(u.pathname)).map((u) => u.pathname), []);
 });
 
 test('빈 구간: 날짜 집합에서 빠진 연속 구간을 최신부터 돌려준다', () => {

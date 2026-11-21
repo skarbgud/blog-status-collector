@@ -26,6 +26,11 @@ export class SqlMetricStore implements MetricStore {
     return new Set(rows.map((r) => String(r.stat_date)));
   }
 
+  async knownKeys(metric: string): Promise<Set<string>> {
+    const rows = await this.sql.query('SELECT DISTINCT row_key FROM metric_row WHERE metric = ?', [metric]);
+    return new Set(rows.map((r) => String(r.row_key)));
+  }
+
   async keysWith(metric: string, date: string): Promise<Set<string>> {
     const rows = await this.sql.query('SELECT row_key FROM metric_row WHERE metric = ? AND stat_date = ?', [metric, date]);
     return new Set(rows.map((r) => String(r.row_key)));

@@ -290,11 +290,15 @@
     if (!view) return;
     const dates = isoDays(view.from, view.to);
     const inRange = new Set(dates);
-    const byHour = new Map(); // 시간 → 날짜 → {cv, cv_p}
-    for (const it of view.items) {
-      if (it.metric !== 'HOUR_TREND' || !inRange.has(it.date)) continue;
-      if (!byHour.has(it.key)) byHour.set(it.key, new Map());
-      byHour.get(it.key).set(it.date, it.values);
+    // 시간대(HOUR, 날짜×시간)에서 만든다. 예전에 따로 받던 HOUR_TREND와 같은 값이라 2026-11-21부터 받지 않는다.
+    const hourRows = view.items.filter((it) => it.metric === 'HOUR' && inRange.has(it.date) && /^\d{1,2}$/.test(it.key));
+    const dayTotal = new Map(); // 날짜 → 그 날 시간대 합(하루 중 비율 계산용)
+    for (const it of hourRows) dayTotal.set(it.date, (dayTotal.get(it.date) || 0) + (it.values.cv || 0));
+    const byHour = new Map(); // 시간 → 날짜 → {cv, cv_daily}
+    for (const it of hourRows) {
+      const h = it.key.padStart(2, '0');
+      if (!byHour.has(h)) byHour.set(h, new Map());
+      byHour.get(h).set(it.date, { cv: it.values.cv || 0, cv_daily: dayTotal.get(it.date) || 0 });
     }
     const select = $('m-ht-select');
     select.replaceChildren();
@@ -314,7 +318,7 @@
       select.appendChild(o);
     }
     const days = byHour.get(selectedHour);
-    // cv_p는 15일 창 안에서의 비율이라 하루 중 비율이 아니다. cv_daily(그 날 전체)로 직접 계산한다.
+    // 하루 중 비율은 그 날 시간대 합(cv_daily)으로 직접 계산한다.
     const shares = [...days.values()].filter((v) => v.cv_daily > 0).map((v) => v.cv * 100 / v.cv_daily);
     $('m-ht-sub').textContent = selectedHour + '시 · 기간 합계 ' + nf.format(totals.get(selectedHour)) + '회'
       + (shares.length ? ' · 하루 중 평균 ' + nf1.format(sum(shares) / shares.length) + '%' : '');

@@ -22,6 +22,8 @@ export interface MetricStore {
   replace(metric: string, rows: MetricRow[], rowKey: string | null): Promise<number>;
   /** 그 지표·날짜의 행을 지운다(집계 전 잠정값 정리) */
   clear(metric: string, date: string): Promise<number>;
+  /** 그 지표에 한 번이라도 저장된 행 구분값(게시글 번호). 없으면 knownPostsLatestOnly를 쓸 수 없다 */
+  knownKeys?(metric: string): Promise<Set<string>>;
 }
 
 /** 통계 API GET. 200이 아니면 HttpStatusError, 로그인 만료·상한·차단은 각자의 오류를 던진다. */
@@ -41,6 +43,12 @@ export interface MetricPlan {
    * 확정된 값을 일시적인 0으로 잃지 않기 위해서다. 기본(false)은 지금처럼 지우고 다음에 다시 받는다.
    */
   keepOnPending?: boolean;
+  /**
+   * 게시글별: 이미 받은 적 있는 글은 최근 15일 순위에 오른 글만, 최신 창 1개만 받는다(2026-11-21).
+   * 끄면(기본, Java와 같음) 어제 행이 없는 순위 글을 기간 전체 창으로 다시 받아, 매일 글 수 × 창 수만큼 요청이 났다.
+   * 과거 구간은 수집기의 보충 단계가 채운다.
+   */
+  knownPostsLatestOnly?: boolean;
 }
 
 export interface MetricResult {
@@ -222,9 +230,16 @@ export class MetricJob {
     if (!plan.force) {
       for (const s of specs) for (const k of await this.store.keysWith(s.id, plan.to)) have.add(k);
     }
+    const known = plan.knownPostsLatestOnly && this.store.knownKeys ? await this.store.knownKeys(marker.id) : null;
+    const recent = known ? new Set(await this.store.postIds(addDays(plan.to, -(SERIES_WINDOW_DAYS - 1)), plan.to)) : null;
     const units: Unit[] = [];
     for (const post of await this.store.postIds(plan.from, plan.to)) {
       if (have.has(post)) continue;
+      if (known?.has(post)) {
+        // 이미 받은 글: 최근 순위에 있을 때만 최신 창 하나(정보·누적 수치 포함)
+        if (recent!.has(post)) units.push({ startDate: plan.to, requested: plan.to, postId: post, specs: [...specs], marker });
+        continue;
+      }
       let firstWindow = true;
       for (const start of seriesStarts(series, plan)) {
         // 게시글마다 요청 한 번에 시계열과 정보를 함께 읽으므로 첫 창에만 정보 지표를 붙인다.
