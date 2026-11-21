@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>블로그 통계</title>
+<style>
+  :root { --bg:#fff; --fg:#1d2330; --muted:#6b7280; --ok:#15803d; --warn:#b45309; --bad:#b91c1c; --line:#e5e7eb; --btn:#1d2330; --btnfg:#fff; color-scheme: light; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16181d; --fg:#e5e7eb; --muted:#9ca3af; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; --line:#2a2e37; --btn:#e5e7eb; --btnfg:#16181d; color-scheme: dark; }
+  }
+  body { margin:0; padding:14px; width:360px; background:var(--bg); color:var(--fg); font:13px/1.5 system-ui, sans-serif; }
+  h1 { font-size:15px; margin:0 0 10px; }
+  .line { display:flex; gap:10px; padding:5px 0; border-top:1px solid var(--line); }
+  .line b { min-width:78px; font-weight:600; color:var(--muted); }
+  .line span { flex:1; overflow-wrap:anywhere; }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  #progress { margin:10px 0 0; padding:8px; border:1px solid var(--line); border-radius:6px; }
+  #progress[hidden] { display:none; }
+  button { width:100%; margin-top:12px; padding:8px; font:inherit; font-weight:600; cursor:pointer; border:0; border-radius:6px; background:var(--btn); color:var(--btnfg); }
+  button:disabled { opacity:.5; cursor:default; }
+  .links { display:flex; gap:8px; } .links button { margin-top:8px; }
+  button.sec { background:transparent; color:var(--fg); border:1px solid var(--line); }
+  .note { margin:10px 0 0; color:var(--muted); font-size:12px; }
+</style>
+</head>
+<body>
+  <h1>블로그 통계</h1>
+  <div id="rows"></div>
+  <div id="progress" hidden></div>
+  <button id="run">지금 수집 (어제 다시 받기)</button>
+  <p class="note" id="plan"></p>
+  <div class="links"><button id="open-dash" class="sec">대시보드 열기</button><button id="open-opts" class="sec">백업·가져오기</button></div>
+  <p class="note">로그인돼 있으면 30분마다 확인해서 어제까지 빠진 것을 자동으로 받습니다(04:00 이후, 요청 사이 1~2초). "지금 수집"은 여기에 더해 어제를 새로 받아 덮어씁니다. 데이터는 이 브라우저에만 저장됩니다. 확장을 삭제하면 데이터도 지워집니다.</p>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

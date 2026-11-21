@@ -2,6 +2,19 @@
 
 네이버 블로그 유입경로 통계(https://blog.stat.naver.com/m/blog/daily/referer)를 Playwright로 수집해 H2에 저장한다.
 
+## 크롬 확장 버전 (`extension/`, 브랜치 feature/google-chrome-extension)
+서버·DB 서버 없이 수집·저장(SQLite WASM, OPFS)·대시보드가 모두 크롬 안에서 돈다. 개인이 자기 블로그 하나만 쓴다(local-first).
+사용법·권한·데이터는 `extension/README.md`. 아래 Java 버전은 v1(태그 `v1.0.0`)이고, 병행 비교가 끝날 때까지 골든 생성기와 비교 기준으로 남긴다.
+- 명령: `cd extension && npm run build`(→ `dist`를 압축해제 로드), `npm test`
+- Java 쪽 보조: 골든 `GOLDEN_DIR="$(pwd)/extension/test" ./gradlew test --tests '*GoldenDumpTest'`, 내보내기 `./gradlew exportJson`
+- **규칙(확장)**
+  - 네이버 요청은 `core/naver.ts`의 `StatClient`만 보낸다. `blog.stat.naver.com`의 허용 목록 경로 GET만, 요청 사이 1~2초(2026-11-21 사용자 결정으로 2~5초에서 줄임), 401/403이면 중단. 하루 상한은 기본 없음(2026-11-21 사용자 결정, 옵션에서 둘 수 있음). 오늘 끝난 뒤에는 로컬에서 센 "새 할 일"이 있을 때만 다시 돈다(같은 실패만 남으면 그날은 쉼).
+  - 쿠키는 "있는지"만 본다. 값을 쓰거나 저장하거나 출력하지 않는다. user-info 응답은 blogId만 쓰고(baUserKey 금지) 원문을 저장하지 않는다.
+  - 원격 코드 금지(라이브러리는 번들). 데이터를 브라우저 밖으로 보내지 않는다(분석·원격 로그 없음).
+  - 이식한 동작을 바꾸면 Java 골든(`extension/test/golden`)과 맞는지 먼저 본다. 조회 계층은 `tools/parity.ts`로 Java 대시보드와 대조한다.
+  - 대시보드 화면 `static/dashboard*.{html,js}`은 Java `static/index.html`에서 옮겼다(인라인 스크립트만 파일로 분리). 화면을 고치면 이 파일들을 고친다.
+  - 차트는 Highcharts(개인·비상업 무료, 상업 이용은 라이선스 필요)이고 `static/charts.js`의 `BlogCharts.draw(el, spec)`로만 그린다. 테마·숫자 형식·반응형 규칙은 그 파일 한 곳에 있다. 외부 값(유입처·주제 이름)은 그 안에서 이스케이프한다.
+
 ## 스택
 - Java 17, Spring Boot 3.5, Gradle, Spring Data JPA, H2(파일 모드), Playwright for Java
 

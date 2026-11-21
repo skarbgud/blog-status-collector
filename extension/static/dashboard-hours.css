@@ -1,0 +1,37 @@
+/* 독자가 오는 시간(요일×시간 3D 지형도). dashboard.html의 색 토큰(--c1, --card 등)을 그대로 쓴다. */
+.aud-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
+@container (max-width: 720px) { .aud-grid { grid-template-columns: 1fr; } }
+
+.aud-tools { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 0 0 10px; }
+.aud-tools .seg { margin: 0; }
+.aud-tools .linkish { font: inherit; font-size: 12px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: transparent; color: var(--muted); cursor: pointer; }
+.aud-tools .linkish:hover { color: var(--c1); border-color: var(--c1); }
+
+.t3 { position: relative; height: 360px; border-radius: 8px; overflow: hidden;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--c1) 4%, transparent)); outline: 1px solid var(--line); }
+@media (max-width: 600px) { .t3 { height: 260px; } }
+.t3.t3-active { outline: 2px solid var(--c1); }
+.t3-host, .t3-host canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.t3-labels { position: absolute; inset: 0; pointer-events: none; }
+.t3-label { position: absolute; left: 0; top: 0; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.t3-label.row { color: var(--text); font-weight: 600; }
+.t3-tip { position: absolute; left: 0; top: 0; max-width: calc(100% - 8px); padding: 6px 9px; border-radius: 6px;
+  background: var(--card); color: var(--text); border: 1px solid var(--line); font-size: 12px; pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .12); }
+.t3-hint { position: absolute; right: 8px; bottom: 8px; font-size: 11px; color: var(--muted); background: var(--card);
+  border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; pointer-events: none; }
+
+.aud-top { margin: 0 0 8px; padding-left: 20px; }
+.aud-top li { margin: 2px 0; }
+#m-aud-fallback { color: var(--warn-text); }
+
+/* 대체 표(7×24): 칸 배경 진하기 = 값. 표가 넓으면 표 안에서만 가로로 스크롤한다(페이지는 스크롤되지 않음). */
+details.aud-table { margin-top: 12px; }
+details.aud-table summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.aud-table-scroll { overflow-x: auto; margin-top: 8px; }
+.aud-heat { border-collapse: collapse; font-size: 11px; width: auto; min-width: 100%; }
+.aud-heat th, .aud-heat td { padding: 3px 4px; border: 1px solid var(--line); text-align: center !important; white-space: nowrap; }
+.aud-heat thead th { color: var(--muted); font-weight: 400; }
+.aud-heat td { background: color-mix(in srgb, var(--c1) var(--a, 0%), transparent); font-variant-numeric: tabular-nums; }
+.aud-heat tr.weak td { opacity: .55; }

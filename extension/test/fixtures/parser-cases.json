@@ -1,0 +1,122 @@
+[
+  {
+    "name": "시계열: 오늘 행은 버린다",
+    "spec": "VIEWS", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "cv", "data": {"rows": {"date": ["2026-11-19", "2026-11-20", "2026-11-21"], "total": [10, 20, 30], "follow": [1, 2.5, 3], "etc": [5.0, 0, null]}}}]}}
+  },
+  {
+    "name": "하루 단위: 행 구분 컬럼(age)",
+    "spec": "DEMO", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "demo", "data": {"rows": {"age": ["total", "01"], "m": [5, 1], "f": [3, null], "m_p": [62.5, 0.5], "f_p": [37.5, 0]}}}, {"dataId": "demoFollow", "data": {"rows": {"age": ["total"], "m": [1], "f": [0]}}}]}}
+  },
+  {
+    "name": "같은 응답의 다른 블록(demoFollow)",
+    "spec": "DEMO_FOLLOW", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "demo", "data": {"rows": {"age": ["total"], "m": [5]}}}, {"dataId": "demoFollow", "data": {"rows": {"age": ["total", "02"], "m": [1, 1], "f": [0, 0]}}}]}}
+  },
+  {
+    "name": "기기: 순서 이름, 넘치는 행은 i+순번",
+    "spec": "DEVICE", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "device", "data": {"rows": {"pc": [1, 2, 3, 4, 5], "mobile": [10, 20, 30, 40, 50]}}}]}}
+  },
+  {
+    "name": "순위: 순번 키(r001)",
+    "spec": "RANK_POST", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "rankCv", "data": {"rows": {"rank": [1, 2], "title": ["첫 글", "둘째 글"], "uri": ["http://blog.naver.com/me/224000000001", "https://blog.naver.com/me/224000000002"], "cv": [3, 2]}}}]}}
+  },
+  {
+    "name": "시간대: cv 합 0이면 집계 전(빈 결과)",
+    "spec": "HOUR", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "hour", "data": {"rows": {"date": ["00", "01"], "cv": [0, 0.0], "cv_p": [0, 0]}}}]}}
+  },
+  {
+    "name": "시간대: 값이 있으면 저장",
+    "spec": "HOUR", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "hour", "data": {"rows": {"date": ["00", "01"], "cv": [0, 2], "cv_p": [0, 100]}}}]}}
+  },
+  {
+    "name": "하루 단위: 블록은 있는데 rows가 없으면 빈 날 표시",
+    "spec": "VIDEO_RANK", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "rank_play_cnt", "data": {}}]}}
+  },
+  {
+    "name": "하루 단위: rows가 빈 객체면 빈 날 표시",
+    "spec": "COUNTRY", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "country", "data": {"rows": {}}}]}}
+  },
+  {
+    "name": "검색어 탭: 행 구분 searchQuery",
+    "spec": "REFERER_SEARCH", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "refererSearch", "data": {"rows": {"searchQuery": ["검색어 하나", "기타"], "cv": [4, 7], "cv_p": [36.36, 63.64]}}}]}}
+  },
+  {
+    "name": "월간 비교: 객체는 항목별 행, 나머지는 value 행. 불리언·배열·null 처리",
+    "spec": "UPPER_GROUP", "requested": "2026-10-01", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "upperGroup", "data": {"value": {"cv": {"top_avg": 10.5, "service_avg": 4.5, "max": 99}, "uv": {"top_avg": 3, "service_avg": 1.25, "max": 7.0}, "month": "2026-10"}}}, {"dataId": "averageUserData", "data": {"value": {"cv": 16492, "uv": 9361, "flag": true, "list": [1, 2], "nothing": null}}}]}}
+  },
+  {
+    "name": "게시글 정보: 값 행의 키는 게시글 번호, 블록 하나 빠져도 허용",
+    "spec": "ARTICLE_INFO", "requested": "2026-11-20", "today": "2026-11-21", "key": "224000000001",
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "articleInfo", "data": {"value": {"title": "글 제목", "url": "http://blog.naver.com/me/224000000001", "addDate": "2026-11-01"}}}, {"dataId": "cv", "data": {"rows": {"date": ["2026-11-20"], "cv": [3]}}}]}}
+  },
+  {
+    "name": "게시글 일 조회수: 행 구분은 게시글 번호",
+    "spec": "ARTICLE_CV", "requested": "2026-11-20", "today": "2026-11-21", "key": "224000000001",
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "cv", "data": {"rows": {"date": ["2026-11-18", "2026-11-19", "2026-11-20", "2026-11-21"], "cv": [0, 1, 3, 9]}}}]}}
+  },
+  {
+    "name": "시간대별 일별 추이: 행 구분은 두 자리 시간",
+    "spec": "HOUR_TREND", "requested": "2026-11-20", "today": "2026-11-21", "key": "05",
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "hour", "data": {"rows": {"date": ["2026-11-19", "2026-11-20"], "cv": [1, 2], "cv_daily": [80, 84], "cv_p": [33.3, 66.7]}}}]}}
+  },
+  {
+    "name": "주간 이웃 추가 성별·연령",
+    "spec": "REL_DEMO_ADD", "requested": "2026-11-09", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "relationDemo", "data": {"rows": {"age": ["total", "03"], "m": [2, 1], "f": [1, 0]}}}]}}
+  },
+  {
+    "name": "일간 현황(dashboard 값)",
+    "spec": "DAILY_SUMMARY", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "cv", "data": {"rows": {"date": ["2026-11-20"], "total": [84]}}}, {"dataId": "dashboard", "data": {"value": {"likeCnt": 3, "commentCnt": 1, "playCnt": 0, "relationDelta": -1, "isToday": false}}}]}}
+  },
+  {
+    "name": "오류: 컬럼 길이가 다름",
+    "spec": "COUNTRY", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "country", "data": {"rows": {"country": ["KR", "US"], "cv": [1]}}}]}}
+  },
+  {
+    "name": "오류: 블록 없음",
+    "spec": "VIEWS", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "other", "data": {"rows": {}}}]}}
+  },
+  {
+    "name": "오류: statusCode가 200이 아님",
+    "spec": "DEMO", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 500, "message": "error", "result": null}
+  },
+  {
+    "name": "오류: 시계열에 rows가 없음",
+    "spec": "VISITS", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "visit", "data": {}}]}}
+  },
+  {
+    "name": "오류: 시계열 날짜 형식",
+    "spec": "VISITS", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "visit", "data": {"rows": {"date": ["11/20"], "visit": [3]}}}]}}
+  },
+  {
+    "name": "오류: 행 구분 컬럼 없음",
+    "spec": "COUNTRY", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "country", "data": {"rows": {"cv": [1]}}}]}}
+  },
+  {
+    "name": "오류: 값 지표 블록이 하나도 없음",
+    "spec": "UPPER_GROUP", "requested": "2026-10-01", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "other", "data": {"value": {"a": 1}}}]}}
+  },
+  {
+    "name": "오류: 컬럼이 배열이 아님",
+    "spec": "DEMO", "requested": "2026-11-20", "today": "2026-11-21", "key": null,
+    "body": {"statusCode": 200, "result": {"statDataList": [{"dataId": "demo", "data": {"rows": {"age": "total", "m": [1]}}}]}}
+  }
+]

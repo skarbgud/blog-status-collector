@@ -1,0 +1,344 @@
+[ {
+  "name" : "시계열: 오늘 행은 버린다",
+  "rows" : [ {
+    "statDate" : "2026-11-19",
+    "metric" : "VIEWS",
+    "rowKey" : "all",
+    "payload" : {
+      "total" : 10,
+      "follow" : 1,
+      "etc" : 5.0
+    }
+  }, {
+    "statDate" : "2026-11-20",
+    "metric" : "VIEWS",
+    "rowKey" : "all",
+    "payload" : {
+      "total" : 20,
+      "follow" : 2.5,
+      "etc" : 0
+    }
+  } ]
+}, {
+  "name" : "하루 단위: 행 구분 컬럼(age)",
+  "rows" : [ {
+    "statDate" : "2026-11-20",
+    "metric" : "DEMO",
+    "rowKey" : "total",
+    "payload" : {
+      "age" : "total",
+      "m" : 5,
+      "f" : 3,
+      "m_p" : 62.5,
+      "f_p" : 37.5
+    }
+  }, {
+    "statDate" : "2026-11-20",
+    "metric" : "DEMO",
+    "rowKey" : "01",
+    "payload" : {
+      "age" : "01",
+      "m" : 1,
+      "f" : null,
+      "m_p" : 0.5,
+      "f_p" : 0
+    }
+  } ]
+}, {
+  "name" : "같은 응답의 다른 블록(demoFollow)",
+  "rows" : [ {
+    "statDate" : "2026-11-20",
+    "metric" : "DEMO_FOLLOW",
+    "rowKey" : "total",
+    "payload" : {
+      "age" : "total",
+      "m" : 1,
+      "f" : 0
+    }
+  }, {
+    "statDate" : "2026-11-20",
+    "metric" : "DEMO_FOLLOW",
+    "rowKey" : "02",
+    "payload" : {
+      "age" : "02",
+      "m" : 1,
+      "f" : 0
+    }
+  } ]
+}, {
+  "name" : "기기: 순서 이름, 넘치는 행은 i+순번",
+  "rows" : [ {
+    "statDate" : "2026-11-20",
+    "metric" : "DEVICE",
+    "rowKey" : "total",
+    "payload" : {
+      "pc" : 1,
+      "mobile" : 10
+    }
+  }, {
+    "statDate" : "2026-11-20",
+    "metric" : "DEVICE",
+    "rowKey" : "etc",
+    "payload" : {
+      "pc" : 2,
+      "mobile" : 20
+    }
+  }, {
+    "statDate" : "2026-11-20",
+    "metric" : "DEVICE",
+    "rowKey" : "follow",
+    "payload" : {
+      "pc" : 3,
+      "mobile" : 30
+    }
+  }, {
+    "statDate" : "2026-11-20",
+    "metric" : "DEVICE",
+    "rowKey" : "friend",
+    "payload" : {
+      "pc" : 4,
+      "mobile" : 40
+    }
+  }, {
+    "statDate" : "2026-11-20",
+    "metric" : "DEVICE",
+    "rowKey" : "i4",
+    "payload" : {
+      "pc" : 5,
+      "mobile" : 50
+    }
+  } ]
+}, {
+  "name" : "순위: 순번 키(r001)",
+  "rows" : [ {
+    "statDate" : "2026-11-20",
+    "metric" : "RANK_POST",
+    "rowKey" : "r001",
+    "payload" : {
+      "rank" : 1,
+      "title" : "첫 글",
+      "uri" : "http://blog.naver.com/me/224000000001",
+      "cv" : 3
+    }
+  }, {
+    "statDate" : "2026-11-20",
+    "metric" : "RANK_POST",
+    "rowKey" : "r002",
+    "payload" : {
+      "rank" : 2,
+      "title" : "둘째 글",
+      "uri" : "https://blog.naver.com/me/224000000002",
+      "cv" : 2
+    }
+  } ]
+}, {
+  "name" : "시간대: cv 합 0이면 집계 전(빈 결과)",
+  "rows" : [ ]
+}, {
+  "name" : "시간대: 값이 있으면 저장",
+  "rows" : [ {
+    "statDate" : "2026-11-20",
+    "metric" : "HOUR",
+    "rowKey" : "00",
+    "payload" : {
+      "date" : "00",
+      "cv" : 0,
+      "cv_p" : 0
+    }
+  }, {
+    "statDate" : "2026-11-20",
+    "metric" : "HOUR",
+    "rowKey" : "01",
+    "payload" : {
+      "date" : "01",
+      "cv" : 2,
+      "cv_p" : 100
+    }
+  } ]
+}, {
+  "name" : "하루 단위: 블록은 있는데 rows가 없으면 빈 날 표시",
+  "rows" : [ {
+    "statDate" : "2026-11-20",
+    "metric" : "VIDEO_RANK",
+    "rowKey" : "_empty",
+    "payload" : { }
+  } ]
+}, {
+  "name" : "하루 단위: rows가 빈 객체면 빈 날 표시",
+  "rows" : [ {
+    "statDate" : "2026-11-20",
+    "metric" : "COUNTRY",
+    "rowKey" : "_empty",
+    "payload" : { }
+  } ]
+}, {
+  "name" : "검색어 탭: 행 구분 searchQuery",
+  "rows" : [ {
+    "statDate" : "2026-11-20",
+    "metric" : "REFERER_SEARCH",
+    "rowKey" : "검색어 하나",
+    "payload" : {
+      "searchQuery" : "검색어 하나",
+      "cv" : 4,
+      "cv_p" : 36.36
+    }
+  }, {
+    "statDate" : "2026-11-20",
+    "metric" : "REFERER_SEARCH",
+    "rowKey" : "기타",
+    "payload" : {
+      "searchQuery" : "기타",
+      "cv" : 7,
+      "cv_p" : 63.64
+    }
+  } ]
+}, {
+  "name" : "월간 비교: 객체는 항목별 행, 나머지는 value 행. 불리언·배열·null 처리",
+  "rows" : [ {
+    "statDate" : "2026-10-01",
+    "metric" : "UPPER_GROUP",
+    "rowKey" : "cv",
+    "payload" : {
+      "top_avg" : 10.5,
+      "service_avg" : 4.5,
+      "max" : 99
+    }
+  }, {
+    "statDate" : "2026-10-01",
+    "metric" : "UPPER_GROUP",
+    "rowKey" : "uv",
+    "payload" : {
+      "top_avg" : 3,
+      "service_avg" : 1.25,
+      "max" : 7.0
+    }
+  }, {
+    "statDate" : "2026-10-01",
+    "metric" : "UPPER_GROUP",
+    "rowKey" : "value",
+    "payload" : {
+      "month" : "2026-10",
+      "cv" : 16492,
+      "uv" : 9361,
+      "flag" : "true",
+      "list" : "",
+      "nothing" : null
+    }
+  } ]
+}, {
+  "name" : "게시글 정보: 값 행의 키는 게시글 번호, 블록 하나 빠져도 허용",
+  "rows" : [ {
+    "statDate" : "2026-11-20",
+    "metric" : "ARTICLE_INFO",
+    "rowKey" : "224000000001",
+    "payload" : {
+      "title" : "글 제목",
+      "url" : "http://blog.naver.com/me/224000000001",
+      "addDate" : "2026-11-01"
+    }
+  } ]
+}, {
+  "name" : "게시글 일 조회수: 행 구분은 게시글 번호",
+  "rows" : [ {
+    "statDate" : "2026-11-18",
+    "metric" : "ARTICLE_CV",
+    "rowKey" : "224000000001",
+    "payload" : {
+      "cv" : 0
+    }
+  }, {
+    "statDate" : "2026-11-19",
+    "metric" : "ARTICLE_CV",
+    "rowKey" : "224000000001",
+    "payload" : {
+      "cv" : 1
+    }
+  }, {
+    "statDate" : "2026-11-20",
+    "metric" : "ARTICLE_CV",
+    "rowKey" : "224000000001",
+    "payload" : {
+      "cv" : 3
+    }
+  } ]
+}, {
+  "name" : "시간대별 일별 추이: 행 구분은 두 자리 시간",
+  "rows" : [ {
+    "statDate" : "2026-11-19",
+    "metric" : "HOUR_TREND",
+    "rowKey" : "05",
+    "payload" : {
+      "cv" : 1,
+      "cv_daily" : 80,
+      "cv_p" : 33.3
+    }
+  }, {
+    "statDate" : "2026-11-20",
+    "metric" : "HOUR_TREND",
+    "rowKey" : "05",
+    "payload" : {
+      "cv" : 2,
+      "cv_daily" : 84,
+      "cv_p" : 66.7
+    }
+  } ]
+}, {
+  "name" : "주간 이웃 추가 성별·연령",
+  "rows" : [ {
+    "statDate" : "2026-11-09",
+    "metric" : "REL_DEMO_ADD",
+    "rowKey" : "total",
+    "payload" : {
+      "age" : "total",
+      "m" : 2,
+      "f" : 1
+    }
+  }, {
+    "statDate" : "2026-11-09",
+    "metric" : "REL_DEMO_ADD",
+    "rowKey" : "03",
+    "payload" : {
+      "age" : "03",
+      "m" : 1,
+      "f" : 0
+    }
+  } ]
+}, {
+  "name" : "일간 현황(dashboard 값)",
+  "rows" : [ {
+    "statDate" : "2026-11-20",
+    "metric" : "DAILY_SUMMARY",
+    "rowKey" : "value",
+    "payload" : {
+      "likeCnt" : 3,
+      "commentCnt" : 1,
+      "playCnt" : 0,
+      "relationDelta" : -1,
+      "isToday" : "false"
+    }
+  } ]
+}, {
+  "name" : "오류: 컬럼 길이가 다름",
+  "error" : true
+}, {
+  "name" : "오류: 블록 없음",
+  "error" : true
+}, {
+  "name" : "오류: statusCode가 200이 아님",
+  "error" : true
+}, {
+  "name" : "오류: 시계열에 rows가 없음",
+  "error" : true
+}, {
+  "name" : "오류: 시계열 날짜 형식",
+  "error" : true
+}, {
+  "name" : "오류: 행 구분 컬럼 없음",
+  "error" : true
+}, {
+  "name" : "오류: 값 지표 블록이 하나도 없음",
+  "error" : true
+}, {
+  "name" : "오류: 컬럼이 배열이 아님",
+  "error" : true
+} ]

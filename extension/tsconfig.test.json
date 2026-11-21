@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "build-test",
+    "types": ["node", "chrome"],
+    "resolveJsonModule": true
+  },
+  "include": ["src/core/**/*.ts", "test/**/*.ts", "tools/**/*.ts"]
+}

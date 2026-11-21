@@ -28,3 +28,15 @@ dependencies {
 tasks.named('test') {
     useJUnitPlatform()
 }
+
+// 크롬 확장으로 옮기기 위한 1회용 내보내기(스냅샷 → JSON). Spring을 띄우지 않고 원본 DB 파일도 열지 않는다.
+tasks.register('exportJson', JavaExec) {
+    group = 'application'
+    description = 'H2 스냅샷을 크롬 확장 가져오기용 JSON으로 내보낸다'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.example.blogstat.tools.SnapshotExport'
+    args = [
+        project.findProperty('snapshot') ?: 'data/replica/snapshot.sql',
+        project.findProperty('out') ?: 'data/export/blogstat-export.json',
+    ]
+}
