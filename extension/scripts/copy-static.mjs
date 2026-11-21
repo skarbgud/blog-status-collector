@@ -23,6 +23,14 @@ mkdirSync(join(dist, 'vendor', 'highcharts'), { recursive: true });
 cpSync(join(hc, 'highcharts.js'), join(dist, 'vendor', 'highcharts', 'highcharts.js'));
 cpSync(join(hc, 'modules', 'accessibility.js'), join(dist, 'vendor', 'highcharts', 'accessibility.js'));
 
+// Pretendard(화면 글꼴, SIL OFL 1.1). 원격으로 받지 않도록 가변 글꼴 파일 하나를 번들에 넣는다. tokens.css의 @font-face가 가리킨다.
+const pret = join(root, 'node_modules', 'pretendard', 'dist');
+const pretFont = join(pret, 'web', 'variable', 'woff2', 'PretendardVariable.woff2');
+if (!existsSync(pretFont)) throw new Error('pretendard가 없습니다. npm install을 먼저 실행하세요.');
+mkdirSync(join(dist, 'vendor', 'pretendard'), { recursive: true });
+cpSync(pretFont, join(dist, 'vendor', 'pretendard', 'PretendardVariable.woff2'));
+cpSync(join(pret, 'LICENSE.txt'), join(dist, 'vendor', 'pretendard', 'LICENSE.txt'));
+
 // three.js(요일×시간 3D 지형도 하나에만 쓴다. MIT). 대시보드가 그 구역을 볼 때만 import()로 불러온다.
 // three.module.js는 같은 폴더의 three.core.js를 상대 경로로 부른다. OrbitControls는 'three'라는 패키지 이름으로 부르는데
 // 확장 페이지에는 import map을 둘 수 없으므로(CSP가 인라인 스크립트를 막음) 복사할 때 상대 경로로 바꾼다.

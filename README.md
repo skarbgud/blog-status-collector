@@ -88,7 +88,7 @@ Java 17 · Spring Boot 3.5 · Spring Data JPA · H2 · Playwright for Java · JU
 
 ## 라이선스
 
-[MIT](LICENSE). 의존 라이브러리는 각자의 라이선스를 따른다. 특히 Highcharts는 개인·비상업 용도만 무료이므로, 상업적으로 쓰거나 배포하려면 [Highcharts 라이선스](https://www.highcharts.com/license)를 따로 확인한다(three.js는 MIT, `@sqlite.org/sqlite-wasm`은 Apache-2.0).
+[MIT](LICENSE). 의존 라이브러리는 각자의 라이선스를 따른다. 특히 Highcharts는 개인·비상업 용도만 무료이므로, 상업적으로 쓰거나 배포하려면 [Highcharts 라이선스](https://www.highcharts.com/license)를 따로 확인한다(three.js는 MIT, `@sqlite.org/sqlite-wasm`은 Apache-2.0, 화면 글꼴 Pretendard는 SIL OFL 1.1이고 라이선스 파일을 `vendor/pretendard/`에 함께 넣는다).
 
 ## 개인 데이터
 

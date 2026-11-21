@@ -1,0 +1,145 @@
+/* 디자인 토큰(toss-ui 기준). 색·글자·간격·모양은 여기 값만 쓴다.
+   - 1층 원색(--blue-500, --grey-100 …): 팔레트 그 자체. 화면 CSS에서 직접 쓰지 않는다.
+   - 2층 의미(--color-*, --font-*, --space-* …): 화면 CSS는 이것만 쓴다. 다크 모드는 이 층만 바꾼다.
+   기존 변수(--bg, --card, --c1 …)와 이름이 겹치지 않는다. 화면을 옮길 때 기존 변수를 이 토큰으로 바꾼다.
+   폰트는 원격으로 받지 않는다(확장 규칙). Pretendard는 빌드가 vendor/pretendard에 복사한다(SIL OFL 1.1). */
+
+@font-face {
+  font-family: "Pretendard";
+  src: url("vendor/pretendard/PretendardVariable.woff2") format("woff2-variations"),
+       url("vendor/pretendard/PretendardVariable.woff2") format("woff2");
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* ---- 1층: 원색 ---- */
+  --blue-50:  #E8F3FF;
+  --blue-500: #3182F6;
+  --blue-600: #1B64DA;
+
+  --grey-50:  #F9FAFB;
+  --grey-100: #F2F4F6;
+  --grey-200: #E5E8EB;
+  --grey-300: #D1D6DB;
+  --grey-400: #B0B8C1;
+  --grey-500: #8B95A1;
+  --grey-600: #6B7684;
+  --grey-700: #4E5968;
+  --grey-800: #333D4B;
+  --grey-900: #191F28;
+
+  --red-500:    #F04452;
+  --green-500:  #03B26C;
+  --orange-500: #FE9800;
+  --white:      #FFFFFF;
+
+  /* ---- 2층: 의미(라이트) ---- */
+  --color-bg:          var(--grey-100);  /* 페이지 배경 */
+  --color-surface:     var(--white);     /* 흰 섹션 */
+  --color-surface-sub: var(--grey-50);   /* 섹션 안 옅은 영역, 행 hover */
+  --color-fill:        var(--grey-100);  /* 보조 버튼·입력 필드 배경, skeleton */
+  --color-line:        var(--grey-200);  /* 구분선 */
+  --color-text-strong: var(--grey-900);  /* 제목, 핵심 숫자 */
+  --color-text:        var(--grey-700);  /* 본문 */
+  --color-text-sub:    var(--grey-600);  /* 보조 텍스트, 라벨 */
+  --color-text-caption:var(--grey-500);  /* 캡션 */
+  --color-text-disabled:var(--grey-400); /* placeholder, 비활성, chevron */
+  --color-accent:      var(--blue-500);  /* 유일한 강조색 */
+  --color-accent-press:var(--blue-600);
+  --color-accent-weak: var(--blue-50);   /* 선택된 칩, 보조 버튼 배경 */
+  --color-on-accent:   var(--white);
+  --color-danger:      var(--red-500);   /* 에러, 하락 */
+  --color-success:     var(--green-500); /* 성공, 상승 */
+  --color-warn:        var(--orange-500);/* 주의(세션 만료 임박 등) */
+  --color-warn-weak:   #FFF4E5;
+  --color-danger-weak: #FFEEF0;
+  --color-toast:       var(--grey-800);
+  --color-grid:        rgba(0, 0, 0, 0.06); /* 차트 격자 */
+
+  /* 차트 계열색. 강조색 하나 원칙의 예외: 범주를 구분해야 하는 차트에만 정해진 순서로 쓴다(돌려 쓰지 않는다).
+     7번째부터는 --chart-other 하나로 묶는다. dataviz 검증 통과(라이트 #FFFFFF·다크 #1B1B21 표면 기준, 색약 구분 ΔE ≥ 8.4).
+     라이트는 2·3·4·5번이 표면 대비 3:1 미만이라 범례나 표를 함께 둔다. */
+  --chart-1: #3182F6; /* 파랑(주 계열) */
+  --chart-2: #EB6834; /* 주황 */
+  --chart-3: #1BAF7A; /* 청록 */
+  --chart-4: #EDA100; /* 노랑 */
+  --chart-5: #E87BA4; /* 분홍 */
+  --chart-6: #008300; /* 초록 */
+  --chart-other: var(--grey-400);
+
+  /* ---- 글자 ---- */
+  --font-sans: Pretendard, "Pretendard Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif;
+  --font-mono: ui-monospace, Consolas, "D2Coding", monospace;
+  --text-title:   26px; /* 700, 화면 메인 타이틀 */
+  --text-heading: 22px; /* 700, 섹션 타이틀, 핵심 숫자 */
+  --text-label:   17px; /* 600, 리스트 주 텍스트, 버튼 */
+  --text-body:    15px; /* 400, 본문 */
+  --text-caption: 13px; /* 400, 캡션, 보조 정보 */
+  --weight-bold: 700;
+  --weight-semibold: 600;
+  --weight-regular: 400;
+  --leading-tight: 1.35;  /* 제목 */
+  --leading-normal: 1.5;  /* 본문 */
+  --tracking-tight: -0.02em;
+
+  /* ---- 간격(4의 배수만) ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;  /* 화면 좌우 패딩 */
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --page-gutter: var(--space-5);
+
+  /* ---- 모양 ---- */
+  --radius-card: 16px;
+  --radius-button: 14px;
+  --radius-input: 12px;
+  --radius-pill: 999px;
+  --shadow-float: 0 4px 16px rgba(0, 0, 0, 0.08); /* 바텀시트·토스트 같은 떠 있는 요소에만 */
+  --control-height: 56px; /* 주요 버튼, 리스트 행 최소 높이 */
+  --icon-size: 20px;
+  --icon-bubble: 40px;    /* 리스트 행 왼쪽 원형 아이콘 배경 */
+
+  /* ---- 움직임 ---- */
+  --press-scale: 0.97;
+  --duration-press: 120ms;
+}
+
+/* ---- 2층: 의미(다크) ---- 원색은 그대로 두고 의미 토큰만 바꾼다. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg:          #101013;
+    --color-surface:     #1B1B21;
+    --color-surface-sub: #222229;
+    --color-fill:        #2C2C35;
+    --color-line:        #2C2C35;
+    --color-text-strong: #F2F4F6;
+    --color-text:        #C3C8CF;
+    --color-text-sub:    #9EA5AF;
+    --color-text-caption:#7E8590;
+    --color-text-disabled:#5C626B;
+    --color-accent:      #4D93F7;
+    --color-accent-press:#3182F6;
+    --color-accent-weak: #1E2B40;
+    --color-on-accent:   var(--white);
+    --color-danger:      #F66570;
+    --color-success:     #2FC385;
+    --color-warn:        #FFA93A;
+    --color-warn-weak:   #33281A;
+    --color-danger-weak: #3A1F23;
+    --color-toast:       #3C3C47;
+    --color-grid:        rgba(255, 255, 255, 0.08);
+    --chart-1: #4D93F7;
+    --chart-2: #D95926;
+    --chart-3: #199E70;
+    --chart-4: #C98500;
+    --chart-5: #D55181;
+    --chart-6: #0CA30C;
+    --chart-other: #5C626B;
+  }
+}
