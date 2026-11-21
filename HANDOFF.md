@@ -6,6 +6,8 @@
 ## 0. 현재 상태: 유지 모드 (2026-11-21, 태그 `v2.1.0`)
 - **기능 개발은 종료.** 처음 목표(검색어·유입경로를 한 화면에서, 90일 축적, 빠른 수집, 암호화 공유)는 모두 됐다. 확장은 배포하지 않고 본인만 쓴다.
 - 남은 로드맵(글 성과 분석 B → 독자가 오는 시간 D → 목표 추적 F → 리포트 E)은 **실제로 써 보다가 필요가 생기면** 그때 한다. 설계는 `~/.claude/plans/extension-analysis-features.md`.
+- **Java(v1) 패키지 이름 변경**(2026-11-22, `d1e72fb`): `com.example.blogstat` → `com.blogstat`. 소스·테스트 폴더(`src/{main,test}/java/com/blogstat`), 패키지 선언·import, `build.gradle`의 `group`·`mainClass`(`com.blogstat.tools.SnapshotExport`)를 바꿨다. 컴파일(main·test) 통과, 전체 `./gradlew test`는 돌리지 않음. 확장(`extension/`)은 영향 없음.
+- **기록 재작성**(2026-11-22, 사용자 허용으로 이번만 강제 푸시): README에 실제 공유 링크를 넣은 커밋을 main에서 뺐고, 그 뒤 커밋 ID가 바뀌었다. `v2.1.0` 태그와 v2 브랜치도 새 기록(`d1e72fb`)으로 옮겼다. 예전 복사본은 `git fetch && git reset --hard origin/main`으로 맞춘다. 그 외에는 강제 푸시 금지 규칙 그대로.
 - 작업 방식: 브랜치 없이 `main`에서 바로. 기능마다 main 커밋·push → v2 폴더(`musinsa-practice-v2`) `merge --ff-only origin/main` + push + `npm run build` → 크롬에서 확장 새로고침(↻).
 
 ### 멈췄을 때 (증상 → 원인 → 대처)
