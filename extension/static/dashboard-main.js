@@ -29,11 +29,13 @@
     $('c-search').textContent = nf.format(summary.searchVisits);
     $('c-ratio').textContent = summary.searchRatio.toFixed(1) + '%';
     $('c-days').textContent = summary.collectedDays + ' / ' + summary.totalDays + '일';
+    $('ov-range').textContent = summary.from.replace(/-/g, '.') + ' ~ ' + summary.to.replace(/-/g, '.');
 
-    const c1 = css('--c1'), c2 = css('--c2');
+    // 계열색은 tokens.css의 --chart-*를 정해진 순서로 쓴다(dataviz 검증 팔레트).
+    const c1 = css('--chart-1'), c2 = css('--chart-2');
     if (dailyChart) dailyChart.destroy();
     dailyChart = BlogCharts.draw($('daily'), {
-      kind: 'line', title: '일별 방문 추이',
+      kind: 'line', title: '일별 방문 추이', fill: false, // 두 계열의 채움이 겹치면 탁해 보여 선만 그린다
       categories: daily.map((d) => d.date.slice(5)),
       series: [
         { name: '전체', data: daily.map((d) => d.visits), color: c1 },
@@ -41,12 +43,18 @@
       ],
     });
 
-    const palette = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626',
-                     '#0891b2', '#65a30d', '#db2777', '#4b5563', '#ca8a04'];
+    // 색은 여섯 개까지만 쓰고(돌려 쓰지 않는다) 7위부터는 '그 외' 한 조각으로 묶는다. 순위 표에는 모두 나온다.
+    const palette = [1, 2, 3, 4, 5, 6].map((i) => css('--chart-' + i));
+    const top = referrers.slice(0, palette.length);
+    const rest = referrers.slice(palette.length);
+    const slices = top.map((r, i) => ({ name: r.name, y: r.visits, color: palette[i] }));
+    if (rest.length > 0) {
+      slices.push({ name: '그 외 ' + rest.length + '곳', y: rest.reduce((a, r) => a + r.visits, 0), color: css('--chart-other') });
+    }
     if (shareChart) shareChart.destroy();
     shareChart = BlogCharts.draw($('share'), {
       kind: 'donut', title: '유입처 비율',
-      series: [{ name: '방문', data: referrers.map((r, i) => ({ name: r.name, y: r.visits, color: palette[i % palette.length] })) }],
+      series: [{ name: '방문', data: slices }],
     });
 
     // 유입처 이름은 외부 값이므로 innerHTML을 쓰지 않고 textContent로만 넣는다.
@@ -138,8 +146,50 @@
     });
   }
 
+  // 개요 화면 상태: 'loading' | 'empty' | 'error' | null(데이터 있음). 다른 화면은 위쪽 #msg 한 줄로 안내한다.
+  let lastParams = {};
+  function setState(kind, detail) {
+    const ov = $('overview');
+    ov.classList.toggle('is-loading', kind === 'loading');
+    ov.classList.toggle('is-empty', kind === 'empty');
+    ov.classList.toggle('is-error', kind === 'error');
+    const box = $('ov-state');
+    const action = $('ov-state-action');
+    box.hidden = kind !== 'empty' && kind !== 'error';
+    action.hidden = true;
+    action.onclick = null;
+    if (kind === 'empty') {
+      $('ov-state-title').textContent = '이 기간에는 모은 데이터가 없어요';
+      $('ov-state-desc').textContent = '기간을 넓혀 보거나, 확장 아이콘을 눌러 수집을 시작해 보세요.';
+      const wide = document.querySelector('[data-days="90"]');
+      if (wide && wide.offsetParent !== null && !wide.classList.contains('active')) {
+        action.textContent = '최근 90일 보기';
+        action.onclick = () => wide.click();
+        action.hidden = false;
+      }
+    } else if (kind === 'error') {
+      $('ov-state-title').textContent = '데이터를 불러오지 못했어요';
+      // 사람이 읽을 수 있는 안내(공유 링크 오류 등)는 그대로, 기술 메시지는 일반 안내로 바꾼다.
+      const readable = detail && /[가-힣]/.test(detail) && !/HTTP|Error|undefined/.test(detail);
+      $('ov-state-desc').textContent = readable ? detail : '잠시 후 다시 불러와 보세요. 계속 안 되면 대시보드 탭을 닫았다가 다시 열어 주세요.';
+      box.title = detail || '';
+      action.textContent = '다시 불러오기';
+      action.onclick = () => load(lastParams);
+      action.hidden = false;
+    }
+  }
+
+  // 처리 중에는 기간 버튼을 잠가 중복 조회를 막는다.
+  function lockControls(on) {
+    document.querySelectorAll('[data-days], #apply').forEach((b) => { b.disabled = on; });
+  }
+
   async function load(params) {
-    $('msg').textContent = '불러오는 중…';
+    lastParams = params;
+    $('msg').textContent = '불러오는 중이에요…';
+    $('msg').title = '';
+    setState('loading');
+    lockControls(true);
     try {
       const summary = await get('/api/dashboard/summary', params);
       const range = { from: summary.from, to: summary.to };
@@ -153,11 +203,17 @@
       render(summary, daily, referrers);
       renderQueries(queries);
       $('s-latest').textContent = summary.latestDate || '없음';
-      $('msg').textContent = summary.collectedDays === 0 ? '이 기간에 수집된 데이터가 없습니다.' : '';
+      const empty = summary.collectedDays === 0;
+      $('msg').textContent = empty ? '이 기간에는 모은 데이터가 없어요.' : '';
+      setState(empty ? 'empty' : null);
     } catch (e) {
-      $('msg').textContent = '조회 실패: ' + e.message;
+      $('msg').textContent = '데이터를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.';
+      $('msg').title = e.message;
+      setState('error', e.message);
       // 유입경로 조회가 실패해도 지표 섹션은 자기 기간으로 따로 그린다.
       window.dispatchEvent(new CustomEvent('blog:range', { detail: params }));
+    } finally {
+      lockControls(false);
     }
   }
 

@@ -2,7 +2,8 @@
 // 테마(글자·격자·배경색)는 페이지의 CSS 변수에서 읽고, 운영체제 다크/라이트가 바뀌면 그려진 차트를 모두 다시 그린다.
 // Highcharts는 개인·비상업 용도로 무료다(www.highcharts.com/license). 번들에 넣어 원격 코드를 쓰지 않는다.
 (function () {
-  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  // 색은 차트가 놓인 요소에서 읽는다. 화면 영역마다 변수를 다시 정의할 수 있다(예: 개요는 tokens.css의 의미 토큰).
+  const css = (name, el) => getComputedStyle(el || document.documentElement).getPropertyValue(name).trim();
   const nf = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 1 });
   const live = new Set(); // { el, spec, chart }
 
@@ -14,8 +15,8 @@
     },
   });
 
-  function theme() {
-    return { text: css('--text'), muted: css('--muted'), grid: css('--grid'), line: css('--line'), card: css('--card') };
+  function theme(el) {
+    return { text: css('--text', el), muted: css('--muted', el), grid: css('--grid', el), line: css('--line', el), card: css('--card', el) };
   }
 
   /** 반투명 그라데이션(꺾은선 아래 영역). */
@@ -28,13 +29,13 @@
   const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
   const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ESC[c]);
 
-  function options(raw, width) {
+  function options(raw, width, el) {
     const spec = Object.assign({}, raw, {
       categories: raw.categories && raw.categories.map(esc),
       series: raw.series.map((s) => Object.assign({}, s, { name: esc(s.name || ''),
         data: raw.kind === 'donut' ? s.data.map((d) => Object.assign({}, d, { name: esc(d.name) })) : s.data })),
     });
-    const t = theme();
+    const t = theme(el);
     const axisLabel = { style: { color: t.muted, fontSize: '11px' } };
     const isPie = spec.kind === 'donut';
     const many = spec.series.length > 1;
@@ -42,8 +43,9 @@
 
     const base = {
       chart: {
-        backgroundColor: 'transparent', spacing: [8, 4, 16, 0], animation: { duration: 350 },
-        style: { fontFamily: 'inherit' }, styledMode: false,
+        backgroundColor: 'transparent', spacing: [8, 4, 16, 8], // 왼쪽 8: Pretendard 숫자는 잰 폭보다 넓게 그려져 y축 첫 글자가 잘렸다 animation: { duration: 350 },
+        // 'inherit'로 두면 글자 폭을 잴 때 기본 글꼴로 재서 축 숫자가 잘린다. 실제 글꼴 이름을 넘긴다.
+        style: { fontFamily: el ? getComputedStyle(el).fontFamily : 'inherit' }, styledMode: false,
       },
       title: { text: null },
       // 출처 표시는 축 글자와 겹치지 않게 맨 아래 여백에 둔다.
@@ -120,7 +122,7 @@
 
   function render(entry) {
     if (entry.chart) entry.chart.destroy();
-    entry.chart = Highcharts.chart(entry.el, options(entry.spec, entry.el.clientWidth));
+    entry.chart = Highcharts.chart(entry.el, options(entry.spec, entry.el.clientWidth, entry.el));
   }
 
   /**
@@ -137,6 +139,11 @@
 
   // 운영체제 테마가 바뀌면 색을 다시 읽어 그린다.
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { for (const e of live) render(e); });
+  // 화면 글꼴(Pretendard)이 늦게 적용되면 축 글자 폭이 달라져 잘린다. 글꼴이 준비되면 한 번 다시 그린다.
+  // fonts.ready는 글꼴을 아직 요청하지 않았으면 바로 끝나므로, 차트가 쓰는 글꼴을 직접 불러온 뒤 다시 그린다.
+  if (document.fonts && document.fonts.load) {
+    document.fonts.load('400 12px Pretendard').then((faces) => { if (faces.length) for (const e of live) render(e); }, () => {});
+  }
 
   window.BlogCharts = { draw };
 })();
