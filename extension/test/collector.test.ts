@@ -131,16 +131,16 @@ test('다음 날에는 새 어제 하루만 유입경로를 받는다', async ()
 
 test('하루 상한: 상한에서 멈추고, 같은 날은 요청 0회, 다음 날 남은 날짜부터 이어 받는다', async () => {
   const sql = await memoryDb();
-  await setSetting(sql, S.dailyCap, '5');
+  await setSetting(sql, S.dailyCap, '9'); // user-info + 하루 2회(유입 합계, 검색 아닌 유입처 상세 URL) × 4일
   const srv = server();
   const r = await runCollection(deps(sql, srv));
   assert.equal(r.outcome, 'cap-reached');
-  assert.equal(srv.urls.length, 5);
+  assert.equal(srv.urls.length, 9);
   assert.deepEqual(refererDates(srv), ['2026-11-20', '2026-11-19', '2026-11-18', '2026-11-17']);
 
   const same = await runCollection(deps(sql, srv, { now: later(3), manual: true }));
   assert.equal(same.outcome, 'cap-reached');
-  assert.equal(srv.urls.length, 5);
+  assert.equal(srv.urls.length, 9);
 
   const next = server();
   await runCollection(deps(sql, next, { now: later(24) }));
@@ -151,10 +151,11 @@ test('하루 상한: 상한에서 멈추고, 같은 날은 요청 0회, 다음 �
 test('도중에 로그인이 만료되면 멈추고, 그때까지 받은 날짜는 남는다', async () => {
   const sql = await memoryDb();
   await setSetting(sql, S.dailyCap, '5000');
-  const srv = server({ failAt: 4, failWith: () => new Response(null, { status: 401 }) });
+  // user-info, 11/20(합계·상세), 11/19(합계·상세), 11/18 합계에서 401
+  const srv = server({ failAt: 6, failWith: () => new Response(null, { status: 401 }) });
   const r = await runCollection(deps(sql, srv));
   assert.equal(r.outcome, 'login-required');
-  assert.equal(srv.urls.length, 4);
+  assert.equal(srv.urls.length, 6);
   assert.equal(await count(sql, 'SELECT COUNT(DISTINCT stat_date) AS n FROM referrer_daily'), 2);
   assert.equal(await getSetting(sql, S.completeDate), null);
 });

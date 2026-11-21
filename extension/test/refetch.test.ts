@@ -23,6 +23,13 @@ const refererBody = (date: string, cv: number) => ({
   ] },
 });
 
+/** 사이트E의 상세 URL. 방문수 합이 유입처와 달라도 경고만 하므로 1건이면 충분하다(가짜 URL). */
+const urlBody = (date: string) => ({
+  statusCode: 200, result: { statDataList: [
+    { dataId: 'refererDetail', data: { rows: { date: [date], cv: [1], cv_p: [100], referrerUrl: ['https://example.com/a'] } } },
+  ] },
+});
+
 /** 유입경로는 받을 때마다 방문수가 늘어나게(덮어썼는지 보이도록), 지표는 404(이 테스트의 관심사가 아님). */
 function server() {
   const urls: URL[] = [];
@@ -39,6 +46,7 @@ function server() {
             urls.push(url);
             if (url.pathname === '/api/blog/user-info') return json({ blogId: 'me' });
             if (url.pathname === '/api/blog/daily/referer/total') return json(refererBody(url.searchParams.get('startDate')!, 3 + calls++));
+            if (url.pathname === '/api/blog/daily/referer/total/detail') return json(urlBody(url.searchParams.get('startDate')!));
             return new Response(null, { status: 404 });
           },
         }),
@@ -165,4 +173,60 @@ test('기본(자동)은 지금처럼 집계 전이면 잠정값을 지운다', a
   const r = await new MetricJob(store).execute(zeroHour, plan());
   assert.equal((await store.keysWith('HOUR', YESTERDAY)).size, 0);
   assert.equal(r.pending, 1);
+});
+
+// ---- 상세 URL(유입분석 탭) ----
+
+const urlRequests = (srv: ReturnType<typeof server>) => srv.urls
+  .filter((u) => u.pathname === '/api/blog/daily/referer/total/detail')
+  .map((u) => [u.searchParams.get('startDate'), u.searchParams.get('searchEngine'), u.searchParams.get('refererDomain')]);
+
+test('상세 URL: 새로 받는 날짜는 유입경로와 함께 검색 아닌 유입처의 URL을 searchEngine=0으로 받는다', async () => {
+  const sql = await db();
+  const srv = server();
+  const r = await runCollection(srv.deps(sql));
+  assert.equal(r.outcome, 'done');
+  assert.equal(urlRequests(srv).length, 30);
+  assert.deepEqual(urlRequests(srv)[0], [YESTERDAY, '0', '사이트E']);
+  assert.equal(r.saved.REFERER_URL, 30);
+  assert.equal(Number((await sql.query('SELECT COUNT(*) AS n FROM referrer_url_daily'))[0]?.n), 30);
+  assert.deepEqual((await planRound(sql, TODAY, 0)).urlDates, [], '다 받았으면 보충할 날짜 없음');
+});
+
+test('상세 URL 보충: 유입경로만 있는 날짜는 유입 합계를 다시 받지 않고 URL만 받는다', async () => {
+  const sql = await db();
+  const srv = server();
+  await runCollection(srv.deps(sql));
+  // URL 수집 전에 받은 날짜(가져온 H2 데이터와 같은 상태)를 만든다
+  await sql.query("DELETE FROM referrer_url_daily WHERE stat_date IN ('2026-11-19', '2026-11-01')");
+  await sql.query("DELETE FROM collection_state WHERE unit_key = 'REFERER_URL' AND stat_date IN ('2026-11-19', '2026-11-01')");
+  const before = await visits(sql, '2026-11-19');
+  assert.deepEqual((await planRound(sql, TODAY, 0)).urlDates, ['2026-11-19', '2026-11-01']);
+  srv.urls.length = 0;
+  const r = await runCollection(srv.deps(sql, { now: later(1), manual: true, refetchDays: 0 }));
+  assert.equal(r.outcome, 'done');
+  assert.deepEqual(srv.referer(), [], '유입 합계는 다시 받지 않음');
+  assert.deepEqual(urlRequests(srv), [['2026-11-19', '0', '사이트E'], ['2026-11-01', '0', '사이트E']]);
+  assert.equal(await visits(sql, '2026-11-19'), before, '유입경로 행은 그대로');
+  assert.deepEqual((await planRound(sql, TODAY, 0)).urlDates, []);
+});
+
+test('상세 URL: 실패한 날은 받은 날로 남기지 않아 다음 회차에 다시 받는다', async () => {
+  const sql = await db();
+  const srv = server();
+  const failing: CollectorDeps = {
+    ...srv.deps(sql),
+    makeClient: (max) => new StatClient({
+      maxRequests: max, random: () => 0, sleep: async () => {},
+      fetchFn: async (url) => {
+        if (url.pathname === '/api/blog/user-info') return json({ blogId: 'me' });
+        if (url.pathname === '/api/blog/daily/referer/total') return json(refererBody(url.searchParams.get('startDate')!, 3));
+        return new Response(null, { status: 404 });
+      },
+    }),
+  };
+  const r = await runCollection(failing);
+  assert.equal(r.failures >= 30, true);
+  assert.equal(Number((await sql.query('SELECT COUNT(*) AS n FROM referrer_daily'))[0]?.n), 30, '유입경로는 저장');
+  assert.equal((await planRound(sql, TODAY, 0)).urlDates.length, 30, '상세 URL은 다음 회차 보충 대상');
 });

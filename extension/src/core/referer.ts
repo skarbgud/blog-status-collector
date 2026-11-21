@@ -1,5 +1,5 @@
 // 유입경로와 검색어. Java RefererParser·RefererSource·ReferrerDailyService.mergeQueries를 옮겼다.
-// 하루에 1(유입 합계) + 검색 유입처 수만큼 요청한다.
+// 하루에 1(유입 합계) + 검색 유입처 수(검색어) + 검색 아닌 유입처 수(상세 URL)만큼 요청한다.
 import { isDate } from './dates.js';
 import { HttpStatusError } from './naver.js';
 import type { JobLog, StatGetter } from './metric-job.js';
@@ -153,19 +153,78 @@ export function refererParams(date: string): Record<string, string> {
   return { timeDimension: 'DATE', additionalTimeDimension: 'WEEK', startDate: date, exclude: 'weekAndMonthAnalysis' };
 }
 
-export function detailParams(date: string, referrer: string, size: number): Record<string, string> {
+/** 상세 요청. 검색 유입처는 searchEngine=1(검색어), 그 밖은 0(URL). 네이버 화면이 보내는 형식이다(2026-11-20 캡처). */
+export function detailParams(date: string, referrer: string, size: number, searchEngine = true): Record<string, string> {
   return {
-    timeDimension: 'DATE', additionalTimeDimension: 'WEEK', startDate: date, searchEngine: '1',
+    timeDimension: 'DATE', additionalTimeDimension: 'WEEK', startDate: date, searchEngine: searchEngine ? '1' : '0',
     refererDomain: referrer, size: String(size), exclude: '',
   };
 }
 
 /**
- * 하루치 유입경로 + 검색 유입처별 검색어. 오늘 데이터면 검색어를 받지 않는다.
+ * 검색 아닌 유입처 하나의 상세 URL. 응답은 검색어와 같은 refererDetail 블록이고 컬럼이 referrerUrl이다.
+ * URL은 잘리지 않은 원문으로 온다(화면의 ...은 CSS 잘림). cv_p는 그 유입처 안의 비율이다(합 100).
+ */
+export function parseUrls(json: string, requested: string, referrer: string): RefererUrlRow[] {
+  const list = root(json, '상세 URL API');
+  const detail = find(list, 'refererDetail');
+  if (!detail) throw new RefererParseError('상세 URL 응답에 refererDetail 블록이 없음');
+  const rows = isObject(detail.data) ? detail.data.rows : undefined;
+  const dates = column(rows, 'date');
+  const urls = column(rows, 'referrerUrl');
+  const visits = column(rows, 'cv');
+  const ratios = column(rows, 'cv_p');
+  const size = dates.length;
+  if ([urls, visits, ratios].some((c) => c.length !== size)) {
+    throw new RefererParseError('상세 URL 컬럼 배열 길이가 서로 다름');
+  }
+  const result: RefererUrlRow[] = [];
+  for (let i = 0; i < size; i++) {
+    const d = date(dates[i]);
+    if (d !== requested) throw new RefererParseError('요청 날짜(' + requested + ')와 상세 URL 응답 날짜(' + d + ')가 다름');
+    const u = urls[i];
+    const url = (u === null || u === undefined ? '' : asText(u)).trim();
+    if (url === '') continue;
+    result.push({ date: d, referrer, url, visits: asInt(visits[i]), ratio: asNumber(ratios[i]) });
+  }
+  return result;
+}
+
+/**
+ * 그 날 검색 아닌 유입처(방문 > 0)마다 상세 URL을 받는다. 하나라도 실패하면 undefined를 돌려
+ * 그 날을 "URL 받음"으로 남기지 않는다(다음 회차 보충에서 다시 받는다). 로그인 만료·상한은 그대로 멈춘다.
+ * 로그에는 개수·합계만 남기고 URL은 남기지 않는다(다른 블로그 ID·플레이스 검색어가 들어 있다).
+ */
+export async function fetchRefererUrls(http: StatGetter, date: string, rows: RefererRow[], size = 100,
+  log: JobLog = () => {}): Promise<RefererUrlRow[] | undefined> {
+  const all: RefererUrlRow[] = [];
+  let failed = false;
+  for (const row of rows) {
+    if (row.searchEngine || row.visits <= 0) continue;
+    const label = date + ' ' + row.referrer + ' 상세 URL';
+    try {
+      const urls = parseUrls(await http.get(REFERER_DETAIL_PATH, detailParams(date, row.referrer, size, false), label),
+        date, row.referrer);
+      const sum = urls.reduce((a, u) => a + u.visits, 0);
+      if (sum !== row.visits) {
+        log('warn', '[경고] ' + label + ' 합계 ' + sum + ' != 유입처 방문수 ' + row.visits + ' (상한 size=' + size + ')');
+      }
+      all.push(...urls);
+    } catch (e) {
+      if (!(e instanceof HttpStatusError) && !(e instanceof RefererParseError)) throw e;
+      failed = true;
+      log('warn', '[경고] ' + label + ' 수집 실패, 이 날의 상세 URL은 다음 회차에 다시 받습니다: ' + e.message);
+    }
+  }
+  return failed ? undefined : all;
+}
+
+/**
+ * 하루치 유입경로 + 검색 유입처별 검색어(+ withUrls면 검색 아닌 유입처별 상세 URL). 오늘 데이터면 상세를 받지 않는다.
  * 한 유입처의 검색어를 못 받아도 그 날의 나머지는 살린다. 로그인 만료·상한은 그대로 멈춘다.
  */
 export async function fetchRefererDay(http: StatGetter, date: string, querySize = 100,
-  log: JobLog = () => {}): Promise<RefererDay> {
+  log: JobLog = () => {}, withUrls = false): Promise<RefererDay> {
   const day = parseReferer(await http.get(REFERER_PATH, refererParams(date), date), date);
   if (day.today) return day;
   const all: SearchQueryRow[] = [];
@@ -185,5 +244,6 @@ export async function fetchRefererDay(http: StatGetter, date: string, querySize 
       log('warn', '[경고] ' + label + ' 수집 실패, 이 유입처의 검색어는 건너뜁니다: ' + e.message);
     }
   }
-  return { ...day, queries: all };
+  if (!withUrls) return { ...day, queries: all };
+  return { ...day, queries: all, urls: await fetchRefererUrls(http, date, day.rows, querySize, log) };
 }

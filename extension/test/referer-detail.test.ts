@@ -9,7 +9,7 @@ import { REFERER_URL_UNIT, SqlRefererStore } from '../src/core/store.js';
 import { DashboardQuery } from '../src/core/dashboard-query.js';
 import { migrate, SCHEMA_VERSION } from '../src/core/schema.js';
 import { getSetting, setSetting } from '../src/core/sql.js';
-import type { RefererDay, RefererUrlRow } from '../src/core/referer.js';
+import { RefererParseError, detailParams, parseUrls, type RefererDay, type RefererUrlRow } from '../src/core/referer.js';
 
 const ME = 'myblog';
 const PLACE = 'https://m.place.naver.com/restaurant/1234567/home?bk_query=%EA%B4%91%EC%95%88%EB%A6%AC%ED%9A%9F%EC%A7%91&n_ad_group_type=10';
@@ -188,4 +188,29 @@ test('조회: 플레이스 검색어 집계와 API 경로', async () => {
   assert.deepEqual(res.body, [{ query: '광안리횟집', visits: 1, places: ['1234567'] }]);
   const d = await q.handle('referrer-details', { from: '2026-11-20', to: '2026-11-18' }, null);
   assert.equal(d.status, 400);
+});
+
+// ---- 상세 URL 응답 파싱(2026-11-20 실제 응답과 같은 구조, URL은 가짜) ----
+
+const urlResponse = (date: string, urls: string[], cv: number[]) => JSON.stringify({
+  statusCode: 200, message: 'OK', result: { statDataList: [{
+    dataId: 'refererDetail',
+    data: { columnInfo: ['date', 'cv', 'cv_p', 'referrerUrl'],
+      rows: { date: urls.map(() => date), cv, cv_p: cv.map((c) => (c * 100) / cv.reduce((a, b) => a + b, 0)), referrerUrl: urls } },
+    utime: '2026-11-21 00:00:00',
+  }] },
+});
+
+test('상세 URL 파싱: refererDetail.referrerUrl을 원문 그대로 읽는다', () => {
+  const rows = parseUrls(urlResponse('2026-11-20', [PLACE, 'https://m.blog.naver.com/FeedList.naver', ''], [3, 1, 1]),
+    '2026-11-20', '네이버 플레이스_모바일');
+  assert.deepEqual(rows.map((r) => [r.url, r.visits, r.referrer]), [
+    [PLACE, 3, '네이버 플레이스_모바일'], ['https://m.blog.naver.com/FeedList.naver', 1, '네이버 플레이스_모바일']], '빈 URL은 건너뜀');
+  assert.throws(() => parseUrls(urlResponse('2026-11-19', [PLACE], [1]), '2026-11-20', 'x'), RefererParseError);
+  assert.throws(() => parseUrls(JSON.stringify({ statusCode: 200, result: { statDataList: [] } }), '2026-11-20', 'x'), RefererParseError);
+});
+
+test('상세 요청 파라미터: 검색 유입처는 searchEngine=1, 그 밖은 0', () => {
+  assert.equal(detailParams('2026-11-20', '네이버 블로그_모바일', 100, false).searchEngine, '0');
+  assert.equal(detailParams('2026-11-20', '네이버 통합검색_모바일', 100).searchEngine, '1');
 });

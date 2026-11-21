@@ -2,7 +2,8 @@
 // 요청을 보내기 전에 로컬에서 판단할 수 있는 것은 모두 먼저 판단한다(요청 0회로 끝나는 경우):
 //   04:00 KST 전 / 오늘 이미 끝남 / 하루 상한 소진 / 최근 로그인 실패(6시간 안) / 다른 계정에 묶임(로그인 확인 후)
 // 그다음 user-info로 로그인과 블로그 ID를 확인하고, 어제까지 30일 범위에서 빠진 것만 받는다.
-//   1) 유입경로·검색어: 받지 않은 날짜(최신순)
+//   1) 유입경로·검색어·상세 URL: 받지 않은 날짜(최신순)
+//      상세 URL만 없는 날짜(가져온 H2 데이터, URL 수집 전에 받은 날)는 저장된 유입처 목록으로 URL만 보충한다
 //   2) 지표 시계열: 처음이면 30일(15일 창 2번), 이후에는 어제를 포함한 창 1번(늦게 확정된 값도 덮어쓴다)
 //   3) 나머지 지표: 받지 않은 날짜·시간대·게시글(MetricJob)
 // "지금 수집"(refetchDays)은 여기에 더해 최근 N일(기본 어제 하루)을 이미 있어도 다시 받아 날짜 단위로 덮어쓴다.
@@ -10,7 +11,7 @@
 // 다시 받을 때 집계 전 빈 값이 오면 확정된 기존 값은 지우지 않는다(keepOnPending).
 import { addDays } from './dates.js';
 import { MetricJob, type JobLog, type MetricPlan, type StatGetter } from './metric-job.js';
-import { RefererParseError, fetchRefererDay } from './referer.js';
+import { RefererParseError, fetchRefererDay, fetchRefererUrls, type RefererRow } from './referer.js';
 import {
   BudgetExceededError, ClientBlockedError, HttpStatusError, SessionExpiredError, USER_INFO_PATH,
   buildQuery, kstDate, kstHour, parseBlogId, type StatClient,
@@ -157,13 +158,25 @@ async function collect(deps: CollectorDeps, client: StatClient, today: string, l
   const referers = new SqlRefererStore(sql);
   for (const d of round.refererDates) {
     try {
-      const day = await fetchRefererDay(http, d, 100, log);
-      if (await referers.save(day)) report.saved.REFERER = (report.saved.REFERER ?? 0) + day.rows.length;
+      const day = await fetchRefererDay(http, d, 100, log, true);
+      if (await referers.save(day)) {
+        report.saved.REFERER = (report.saved.REFERER ?? 0) + day.rows.length;
+        if (day.urls) report.saved.REFERER_URL = (report.saved.REFERER_URL ?? 0) + day.urls.length;
+        else report.failures++;
+      }
     } catch (e) {
       if (!(e instanceof HttpStatusError) && !(e instanceof RefererParseError)) throw e;
       report.failures++;
       log('warn', '[경고] ' + d + ' 유입경로 수집 실패, 건너뜁니다: ' + e.message);
     }
+  }
+
+  // 1-2) 상세 URL 보충: 유입 합계는 다시 받지 않고 저장된 유입처 목록을 쓴다. 유입경로·검색어 행은 건드리지 않는다.
+  for (const d of round.urlDates) {
+    const urls = await fetchRefererUrls(http, d, await storedReferers(sql, d), 100, log);
+    if (!urls) { report.failures++; continue; }
+    await referers.saveUrls(d, urls);
+    report.saved.REFERER_URL = (report.saved.REFERER_URL ?? 0) + urls.length;
   }
 
   // 2)·3) 지표
@@ -198,6 +211,8 @@ export interface Round {
   refetchFrom: string | null;
   /** 받을 유입경로 날짜(최신순): 빠진 날짜 + 다시 받는 날짜 */
   refererDates: string[];
+  /** 유입경로는 있는데 상세 URL이 없는 날짜(최신순). refererDates와 겹치지 않는다 */
+  urlDates: string[];
   plans: MetricPlan[];
 }
 
@@ -214,6 +229,11 @@ export async function planRound(sql: Sql, today: string, refetchDays: number): P
     if (have.has(d) && !(refetchFrom !== null && d >= refetchFrom)) continue;
     refererDates.push(d);
   }
+  const haveUrls = await new SqlRefererStore(sql).urlDatesWith(from, to);
+  const urlDates: string[] = [];
+  for (let d = to; d >= from; d = addDays(d, -1)) {
+    if (have.has(d) && !haveUrls.has(d) && !refererDates.includes(d)) urlDates.push(d);
+  }
 
   const plainSeries = (s: MetricSpec) => isSeries(s) && !s.perPost && !s.perHour;
   const others = ALL.filter((s) => !plainSeries(s));
@@ -223,7 +243,7 @@ export async function planRound(sql: Sql, today: string, refetchDays: number): P
   // 다시 받기를 먼저 해서, 뒤의 "빠진 것 채우기"가 같은 날짜를 또 받지 않게 한다.
   if (refetchFrom !== null) plans.push({ specs: others, from: refetchFrom, to, force: true, today, keepOnPending: true });
   plans.push({ specs: others, from, to, force: false, today });
-  return { from, to, refetchFrom, refererDates, plans };
+  return { from, to, refetchFrom, refererDates, urlDates, plans };
 }
 
 /**
@@ -234,17 +254,31 @@ export async function estimateRound(sql: Sql, today: string, refetchDays: number
   const round = await planRound(sql, today, refetchDays);
   const job = new MetricJob(new SqlMetricStore(sql));
   let n = 1;
-  for (const d of round.refererDates) n += 1 + (await searchEngines(sql, d));
+  for (const d of round.refererDates) n += 1 + (await detailCount(sql, d, true)) + (await detailCount(sql, d, false));
+  for (const d of round.urlDates) n += await detailCount(sql, d, false);
   for (const plan of round.plans) n += await job.estimateRequests(plan);
   return n;
 }
 
-/** 그 날짜의 검색 유입처 수(검색어 요청 수). 아직 없는 날짜는 가장 최근 날짜의 수로 어림한다. */
-async function searchEngines(sql: Sql, date: string): Promise<number> {
-  const q = 'SELECT COUNT(*) AS n FROM referrer_daily WHERE search_engine = 1 AND stat_date = ';
+/**
+ * 그 날짜의 상세 요청 수: 검색 유입처 수(검색어) 또는 방문이 있는 검색 아닌 유입처 수(상세 URL).
+ * 아직 없는 날짜는 가장 최근 날짜의 수로 어림한다.
+ */
+async function detailCount(sql: Sql, date: string, search: boolean): Promise<number> {
+  const q = 'SELECT COUNT(*) AS n FROM referrer_daily WHERE search_engine = ' + (search ? 1 : 0) + ' AND visits > 0 AND stat_date = ';
   const own = Number((await sql.query(q + '?', [date]))[0]?.n ?? 0);
   if (own > 0) return own;
   return Number((await sql.query(q + '(SELECT MAX(stat_date) FROM referrer_daily)'))[0]?.n ?? 0);
+}
+
+/** 저장된 그 날의 유입처 목록(상세 URL 보충용). */
+async function storedReferers(sql: Sql, date: string): Promise<RefererRow[]> {
+  const rows = await sql.query(
+    'SELECT referrer_name, search_engine, visits, ratio FROM referrer_daily WHERE stat_date = ? ORDER BY visits DESC', [date]);
+  return rows.map((r) => ({
+    date, referrer: String(r.referrer_name), searchEngine: Number(r.search_engine) === 1,
+    visits: Number(r.visits), ratio: Number(r.ratio),
+  }));
 }
 
 /** 받은 응답 원문을 남기는 StatGetter(파서를 고친 뒤 다시 읽기용, 14일 보관). */
