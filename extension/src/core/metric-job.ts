@@ -40,6 +40,8 @@ export interface MetricResult {
   saved: Record<string, number>;
   failures: number;
   budgetStopped: boolean;
+  /** 집계 전이라 저장하지 않은 (지표, 날짜) 수. 0보다 크면 다음 확인 때 다시 받는다 */
+  pending: number;
 }
 
 export interface JobLog {
@@ -65,7 +67,7 @@ export class MetricJob {
   ) {}
 
   async execute(http: StatGetter, plan: MetricPlan): Promise<MetricResult> {
-    const result: MetricResult = { saved: {}, failures: 0, budgetStopped: false };
+    const result: MetricResult = { saved: {}, failures: 0, budgetStopped: false, pending: 0 };
     try {
       for (const unit of await this.plainUnits(plan)) await this.fetch(http, unit, plan, result);
       for (const unit of await this.hourUnits(plan)) await this.fetch(http, unit, plan, result);
@@ -110,6 +112,7 @@ export class MetricJob {
         if (rows.length === 0 && !isSeries(spec) && !isValue(spec)) {
           // 네이버가 아직 집계하지 않은 날. 저장하지 않고(다음에 다시 받는다), 앞서 저장된 잠정값은 지운다.
           await this.store.clear(spec.id, unit.requested);
+          result.pending++;
           this.log('info', '[집계 전] ' + spec.id + ' ' + unit.requested + ' 아직 확정되지 않아 저장하지 않습니다.');
           continue;
         }

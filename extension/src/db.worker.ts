@@ -3,7 +3,8 @@
 /// <reference lib="webworker" />
 
 type Row = Record<string, unknown>;
-interface Req { id: number; sql: string; bind?: unknown[] }
+interface Stmt { sql: string; bind?: unknown[] }
+interface Req { id: number; sql?: string; bind?: unknown[]; tx?: Stmt[] }
 
 // 타입 해석을 피하려고 런타임 URL로 불러온다(파일은 빌드 때 vendor/sqlite로 복사됨).
 const sqliteUrl = new URL('./vendor/sqlite/index.mjs', import.meta.url).href;
@@ -18,9 +19,16 @@ const ready = (async () => {
 })();
 
 self.onmessage = async (e: MessageEvent<Req>) => {
-  const { id, sql, bind } = e.data;
+  const { id, sql, bind, tx } = e.data;
   try {
     const { db, version } = await ready;
+    if (tx) {
+      db.transaction(() => {
+        for (const s of tx) db.exec({ sql: s.sql, bind: s.bind });
+      });
+      self.postMessage({ id, rows: [] });
+      return;
+    }
     if (sql === '__version__') {
       self.postMessage({ id, rows: [{ version }] });
       return;

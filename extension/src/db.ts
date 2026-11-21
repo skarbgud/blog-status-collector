@@ -1,8 +1,7 @@
-// 오프스크린 문서에서 DB 워커를 부르는 얇은 클라이언트.
+// 오프스크린 문서에서 DB 워커를 부르는 얇은 클라이언트. 워커는 메시지를 하나씩 순서대로 처리한다.
+import type { Row, Sql, Stmt } from './core/sql.js';
 
-type Row = Record<string, unknown>;
-
-export class Db {
+export class Db implements Sql {
   private readonly worker = new Worker(new URL('./db.worker.js', import.meta.url), { type: 'module' });
   private seq = 0;
   private readonly pending = new Map<number, { resolve: (r: Row[]) => void; reject: (e: Error) => void }>();
@@ -25,10 +24,18 @@ export class Db {
   }
 
   query(sql: string, bind?: unknown[]): Promise<Row[]> {
+    return this.send({ sql, bind });
+  }
+
+  async tx(stmts: Stmt[]): Promise<void> {
+    await this.send({ tx: stmts });
+  }
+
+  private send(msg: object): Promise<Row[]> {
     const id = ++this.seq;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ id, sql, bind });
+      this.worker.postMessage({ id, ...msg });
     });
   }
 }
