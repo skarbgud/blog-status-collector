@@ -114,17 +114,17 @@ class MetricStorageTest {
     @Test
     void 순위에_나온_게시글_번호를_모은다() {
         service.replace("RANK_POST", List.of(
-                row(D1, "RANK_POST", "r001", "{\"title\":\"a\",\"uri\":\"http://blog.naver.com/me/224476308011\"}"),
-                row(D1, "RANK_POST", "r002", "{\"title\":\"b\",\"uri\":\"http://blog.naver.com/me/224440800651\"}")));
+                row(D1, "RANK_POST", "r001", "{\"title\":\"a\",\"uri\":\"http://blog.naver.com/me/224000000101\"}"),
+                row(D1, "RANK_POST", "r002", "{\"title\":\"b\",\"uri\":\"http://blog.naver.com/me/224000000102\"}")));
         service.replace("RANK_LIKE", List.of(
-                row(D2, "RANK_LIKE", "r001", "{\"uri\":\"http://blog.naver.com/me/224476308011\"}"),
+                row(D2, "RANK_LIKE", "r001", "{\"uri\":\"http://blog.naver.com/me/224000000101\"}"),
                 row(D2, "RANK_LIKE", "r002", "{\"uri\":\"http://example.com/x/999\"}")));
         service.replace("HOUR", List.of(row(D2, "HOUR", "00", "{\"uri\":\"http://blog.naver.com/me/1\"}")));
 
         // 다른 지표(HOUR)와 네이버 블로그가 아닌 주소는 넣지 않는다.
-        assertEquals(Set.of("224476308011", "224440800651"), service.postIds(D1, D2));
-        assertEquals(Set.of("224476308011", "224440800651"), service.postIds(D1, D1));
-        assertEquals(Set.of("224476308011"), service.postIds(D2, D2));
+        assertEquals(Set.of("224000000101", "224000000102"), service.postIds(D1, D2));
+        assertEquals(Set.of("224000000101", "224000000102"), service.postIds(D1, D1));
+        assertEquals(Set.of("224000000101"), service.postIds(D2, D2));
     }
 
     @Test

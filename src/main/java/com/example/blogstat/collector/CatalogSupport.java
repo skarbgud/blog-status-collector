@@ -58,7 +58,7 @@ public final class CatalogSupport {
 
     /**
      * 같은 종류의 화면을 한 번만 보기 위한 키. 글 번호처럼 긴 숫자는 {id}로 바꾼다.
-     * 예: /m/blog/article/224476308011/cv → /m/blog/article/{id}/cv (글마다 같은 API를 부른다)
+     * 예: /m/blog/article/224000000101/cv → /m/blog/article/{id}/cv (글마다 같은 API를 부른다)
      */
     public static String pagePattern(String pageUrl) {
         return pageUrl.replaceAll("/\\d{6,}(?=/|$|#)", "/{id}");

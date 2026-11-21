@@ -92,7 +92,7 @@ public class MetricService {
 
     /**
      * 기간 안의 조회수·공감·댓글 순위에 한 번이라도 나온 게시글 번호(contentId)들.
-     * 순위의 uri(예: http://blog.naver.com/아이디/224476308011) 마지막 마디가 게시글 번호다.
+     * 순위의 uri(예: http://blog.naver.com/아이디/224000000101) 마지막 마디가 게시글 번호다.
      */
     @Transactional(readOnly = true)
     public Set<String> postIds(LocalDate from, LocalDate to) {
