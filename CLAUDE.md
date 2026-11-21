@@ -8,7 +8,7 @@
 - 명령: `cd extension && npm run build`(→ `dist`를 압축해제 로드), `npm test`
 - Java 쪽 보조: 골든 `GOLDEN_DIR="$(pwd)/extension/test" ./gradlew test --tests '*GoldenDumpTest'`, 내보내기 `./gradlew exportJson`
 - **규칙(확장)**
-  - 네이버 요청은 `core/naver.ts`의 `StatClient`만 보낸다. `blog.stat.naver.com`의 허용 목록 경로 GET만, 요청 사이 2~5초, 401/403이면 중단. 하루 상한은 기본 없음(2026-11-21 사용자 결정, 옵션에서 둘 수 있음). 오늘 끝난 뒤에는 로컬에서 센 "새 할 일"이 있을 때만 다시 돈다(같은 실패만 남으면 그날은 쉼).
+  - 네이버 요청은 `core/naver.ts`의 `StatClient`만 보낸다. `blog.stat.naver.com`의 허용 목록 경로 GET만, 요청 사이 1~2초(2026-11-21 사용자 결정으로 2~5초에서 줄임), 401/403이면 중단. 하루 상한은 기본 없음(2026-11-21 사용자 결정, 옵션에서 둘 수 있음). 오늘 끝난 뒤에는 로컬에서 센 "새 할 일"이 있을 때만 다시 돈다(같은 실패만 남으면 그날은 쉼).
   - 쿠키는 "있는지"만 본다. 값을 쓰거나 저장하거나 출력하지 않는다. user-info 응답은 blogId만 쓰고(baUserKey 금지) 원문을 저장하지 않는다.
   - 원격 코드 금지(라이브러리는 번들). 데이터를 브라우저 밖으로 보내지 않는다(분석·원격 로그 없음).
   - 이식한 동작을 바꾸면 Java 골든(`extension/test/golden`)과 맞는지 먼저 본다. 조회 계층은 `tools/parity.ts`로 Java 대시보드와 대조한다.

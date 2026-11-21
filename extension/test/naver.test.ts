@@ -27,13 +27,13 @@ function fake(steps: Step[], opts: { maxRequests?: number } = {}) {
   return { client, sleeps, calls: () => calls };
 }
 
-test('지연: 첫 요청은 바로, 이후는 직전 요청 시작부터 2~5초', async () => {
+test('지연: 첫 요청은 바로, 이후는 직전 요청 시작부터 1~2초', async () => {
   const f = fake([200]);
   await f.client.get(PATH);
   assert.deepEqual(f.sleeps, []);
   await f.client.get(PATH);
   assert.equal(f.sleeps.length, 1);
-  assert.ok(f.sleeps[0]! > 3000 && f.sleeps[0]! <= 3500, '0.5면 3.5초에서 경과 시간을 뺀 만큼: ' + f.sleeps[0]);
+  assert.ok(f.sleeps[0]! > 1000 && f.sleeps[0]! <= 1500, '0.5면 1.5초에서 경과 시간을 뺀 만큼: ' + f.sleeps[0]);
 });
 
 test('재시도: 503 두 번 뒤 200이면 본문을 돌려주고 재시도도 요청 수에 센다', async () => {

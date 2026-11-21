@@ -20,7 +20,7 @@ import { ALL, isSeries, type MetricSpec } from './specs.js';
 import { deleteSetting, getSetting, setSetting, type Sql } from './sql.js';
 import { SqlMetricStore, SqlRefererStore } from './store.js';
 
-/** 하루 요청 상한. 0 이하면 상한 없음(기본, 2026-11-21 사용자 결정). 요청 사이 2~5초와 401/403 중단은 그대로다. */
+/** 하루 요청 상한. 0 이하면 상한 없음(기본, 2026-11-21 사용자 결정). 요청 사이 1~2초와 401/403 중단은 그대로다. */
 export const DEFAULT_DAILY_CAP = 0;
 export const hasCap = (cap: number) => Number.isFinite(cap) && cap > 0;
 export const RANGE_DAYS = 30;

@@ -2,7 +2,7 @@
 // - 호스트는 blog.stat.naver.com, 경로는 아래 허용 목록, 메서드는 GET만 쓴다.
 // - 쿠키는 브라우저가 붙인다. 확장은 쿠키 값을 쓰지도 저장하지도 않는다
 //   (서비스 워커가 로그인 쿠키가 "있는지"만 확인해 로그아웃 상태에서는 요청을 보내지 않는다).
-// - 요청 사이 2~5초 지연, 재시도·백오프, 회차당 요청 상한, 로그인 만료 뒤 차단을 이 클래스가 강제한다(Java StatSession).
+// - 요청 사이 1~2초 지연(2026-11-21 사용자 결정, 처음 30일 채우기 47분 → 약 20분), 재시도·백오프, 회차당 요청 상한, 로그인 만료 뒤 차단을 이 클래스가 강제한다(Java StatSession).
 
 import { ALL } from './specs.js';
 
@@ -87,7 +87,7 @@ const RETRY_STATUS = new Set([429, 502, 503, 504]);
 
 /**
  * 한 회차 동안 쓰는 클라이언트. 회차마다 새로 만든다.
- * - 회차 첫 요청을 빼고 새 요청 앞마다 2~5초 쉰다(재시도는 백오프로 대신한다).
+ * - 회차 첫 요청을 빼고 새 요청 앞마다 1~2초 쉰다(재시도는 백오프로 대신한다).
  * - 재시도를 포함한 실제 요청 수를 상한으로 센다.
  * - 429(Retry-After 우선)·502·503·504·타임아웃·네트워크 오류는 백오프 후 재시도한다.
  *   HTTP 상태는 재시도를 다 써도 그 상태를 돌려주고(그 요청만 실패), 네트워크 오류는 회차를 막는다(오프라인).
@@ -109,8 +109,8 @@ export class StatClient {
   private readonly log: (level: 'info' | 'warn', message: string) => void;
 
   constructor(private readonly opts: StatClientOptions) {
-    this.minDelayMs = opts.minDelayMs ?? 2000;
-    this.maxDelayMs = opts.maxDelayMs ?? 5000;
+    this.minDelayMs = opts.minDelayMs ?? 1000;
+    this.maxDelayMs = opts.maxDelayMs ?? 2000;
     this.maxRetries = opts.maxRetries ?? 3;
     this.baseBackoffMs = opts.baseBackoffMs ?? 1000;
     this.capBackoffMs = opts.capBackoffMs ?? 30_000;
@@ -206,7 +206,7 @@ export class StatClient {
     return { status: res.status, body: res.status === 200 ? await res.text() : '', retryAfter: res.headers.get('retry-after') };
   }
 
-  /** 첫 요청 앞에는 지연을 두지 않고, 이후에는 직전 요청 시작부터 2~5초가 지나야 보낸다. */
+  /** 첫 요청 앞에는 지연을 두지 않고, 이후에는 직전 요청 시작부터 1~2초가 지나야 보낸다. */
   private async pace(): Promise<void> {
     if (this.lastAt === 0) return;
     const wait = this.minDelayMs + this.random() * (this.maxDelayMs - this.minDelayMs);
