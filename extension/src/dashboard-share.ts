@@ -3,11 +3,11 @@
 // - 푸는 키는 링크의 # 뒤에만 있다. # 뒤는 서버로 전송되지 않으므로 사이트는 내용을 읽을 수 없다.
 // - dashboard-api.js 다음에 일반 스크립트로 불러온다. fetch를 한 번 더 감싸서 응답을 기록만 하고, 응답은 그대로 돌려준다.
 // - 링크를 가진 사람은 누구나 이 화면(검색어·유입 URL 포함)을 볼 수 있다. 버튼 아래에 그렇게 알린다.
-// - 쓰기 토큰·내 공유 목록(삭제 토큰 포함)은 이 확장 페이지의 localStorage에만 둔다.
+// - 누구나 공유할 수 있다(인증 없음). 사이트가 IP당·하루 전체 업로드 수를 제한한다(src/core/share-api.ts).
+// - 내 공유 목록(삭제 토큰 포함)은 이 확장 페이지의 localStorage에만 둔다.
 (() => {
   const PREFIX = '/api/dashboard/';
   const VIEWER_KEY = 'share_viewer_url';
-  const TOKEN_KEY = 'share_write_token';
   const LIST_KEY = 'share_list';
   /** 배포된 보기 페이지(Netlify, 저장소 루트 netlify.toml). 다른 곳에 올렸으면 설정에서 바꾼다. */
   const DEFAULT_VIEWER = 'https://blog-status-collector.netlify.app/';
@@ -65,15 +65,6 @@
       alert('주소 형식이 잘못됐습니다. https://로 시작하는 주소를 입력하세요.');
       return null;
     }
-  }
-
-  function writeToken(ask: boolean): string | null {
-    const saved = load(TOKEN_KEY);
-    if (saved && !ask) return saved;
-    const v = prompt('공유 쓰기 토큰을 입력하세요.\nNetlify 사이트 설정 → Environment variables의 SHARE_WRITE_TOKEN과 같은 값입니다. (처음 한 번만 묻습니다)', '');
-    if (!v || !v.trim()) return null;
-    save(TOKEN_KEY, v.trim());
-    return v.trim();
   }
 
   // ---- 내 공유 목록 ----
@@ -162,13 +153,7 @@
       const u = viewerUrl(true);
       if (u) out.textContent = '보기 페이지: ' + u;
     });
-    const token = el('a', '쓰기 토큰');
-    token.href = '#';
-    token.addEventListener('click', (e) => {
-      e.preventDefault();
-      if (writeToken(true)) out.textContent = '쓰기 토큰을 바꿨습니다.';
-    });
-    settings.append(el('span', '설정: '), viewer, el('span', ' · '), token);
+    settings.append(el('span', '설정: '), viewer);
     controls.append(make, out, listBox, settings);
     box.append(label, controls);
     sidebar.append(box);
@@ -190,11 +175,6 @@
     }
     const base = viewerUrl(false);
     if (!base) return;
-    const token = writeToken(false);
-    if (!token) {
-      out.textContent = '쓰기 토큰이 있어야 공유할 수 있습니다.';
-      return;
-    }
     button.disabled = true;
     out.textContent = '암호화해서 올리는 중…';
     try {
@@ -202,18 +182,14 @@
       const responses = codec.pickResponses(Object.fromEntries(recorded));
       const createdAt = new Date().toISOString();
       const { body, key } = await codec.sealShare({ v: codec.SHARE_VERSION, createdAt, from, to, responses });
+      // 헤더를 붙이지 않는다(Content-Type 없음): 단순 요청이라 미리 확인 요청(OPTIONS)이 생기지 않아 IP당 업로드 수에 세지 않는다.
       const res = await fetch(new URL('api/share?days=' + KEEP_DAYS, base), {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/octet-stream' },
-        body: body as Uint8Array<ArrayBuffer>,
+        method: 'POST', body: body as Uint8Array<ArrayBuffer>, credentials: 'omit',
       });
-      if (res.status === 401) {
-        save(TOKEN_KEY, null);
-        throw new Error('쓰기 토큰이 맞지 않습니다. 다시 누르면 토큰을 새로 묻습니다.');
-      }
       if (!res.ok) {
         let detail = '';
-        try { detail = ((await res.json()) as { message?: string }).message ?? ''; } catch { /* 본문 없음 */ }
+        try { detail = ((await res.json()) as { message?: string }).message ?? ''; } catch { /* 본문 없음(Netlify 요청 제한 응답 등) */ }
+        if (!detail && res.status === 429) detail = '짧은 시간에 공유를 너무 많이 만들었습니다. 3분쯤 뒤에 다시 눌러 주세요.';
         throw new Error(detail || 'HTTP ' + res.status);
       }
       const r = (await res.json()) as { id: string; deleteToken: string; expiresAt: string };

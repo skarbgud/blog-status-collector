@@ -1,17 +1,17 @@
-// 짧은 공유 링크: 서버 처리기(쓰기 토큰, 크기·일수 제한, 만료, 삭제 토큰)와 브라우저 암호화(봉인·열기).
+// 짧은 공유 링크: 서버 처리기(인증 없음, 크기·일수·하루 상한, 긴급 정지, 만료, 삭제 토큰)와 브라우저 암호화(봉인·열기).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_BYTES, handleShare, sweepShares, type ShareMeta, type ShareStore } from '../src/core/share-api.js';
+import { DAILY_CAP, MAX_BYTES, handleShare, sweepShares, type ShareMeta, type ShareStore } from '../src/core/share-api.js';
 import {
   SHARE_VERSION, ShareDecodeError, openShare, refFromHash, sealShare, shortLink, type SharePayload,
 } from '../src/core/share-codec.js';
 
-const TOKEN = 'test-token-0123456789';
 const NOW = new Date('2026-11-21T09:00:00Z');
 const later = (days: number) => new Date(NOW.getTime() + days * 86_400_000);
 
 function memoryStore(): ShareStore & { size(): number } {
   const m = new Map<string, { data: ArrayBuffer; meta: ShareMeta }>();
+  const days = new Map<string, number>();
   return {
     size: () => m.size,
     async get(id) { return m.get(id) ?? null; },
@@ -19,58 +19,75 @@ function memoryStore(): ShareStore & { size(): number } {
     async set(id, data, meta) { m.set(id, { data, meta }); },
     async delete(id) { m.delete(id); },
     async list() { return [...m.keys()]; },
+    async bumpDaily(day) { const n = (days.get(day) ?? 0) + 1; days.set(day, n); return n; },
   };
 }
 
 const url = (path: string) => 'https://share.example' + path;
-const post = (body: BodyInit | null, headers: Record<string, string> = {}, query = '') =>
-  new Request(url('/api/share' + query), { method: 'POST', body, headers: { Authorization: 'Bearer ' + TOKEN, ...headers } });
+const post = (body: BodyInit | null, query = '') => new Request(url('/api/share' + query), { method: 'POST', body });
 const bytes = (n: number) => new Uint8Array(n).fill(7);
 
-async function upload(store: ShareStore, query = '') {
-  const res = await handleShare(post(bytes(100), {}, query), store, { token: TOKEN }, NOW);
+async function upload(store: ShareStore, query = '', now = NOW) {
+  const res = await handleShare(post(bytes(100), query), store, {}, now);
   assert.equal(res.status, 201);
   return (await res.json()) as { id: string; deleteToken: string; expiresAt: string };
 }
 
-test('공유 API: 쓰기 토큰이 맞아야 저장하고, 토큰이 설정되지 않은 사이트는 저장을 받지 않는다', async () => {
+test('공유 API: 인증 없이 누구나 저장하고, 삭제 토큰 자체는 저장하지 않는다', async () => {
   const store = memoryStore();
-  assert.equal((await handleShare(post(bytes(10), { Authorization: 'Bearer wrong' }), store, { token: TOKEN }, NOW)).status, 401);
-  assert.equal((await handleShare(post(bytes(10), { Authorization: '' }), store, { token: TOKEN }, NOW)).status, 401);
-  assert.equal((await handleShare(post(bytes(10)), store, {}, NOW)).status, 503);
-  assert.equal(store.size(), 0);
   const r = await upload(store);
   assert.match(r.id, /^[A-Za-z0-9_-]{16}$/);
   assert.equal(r.expiresAt, later(30).toISOString(), '기본 30일');
   assert.equal(store.size(), 1);
-  // 삭제 토큰 자체는 저장하지 않는다
   assert.ok(!JSON.stringify(await store.meta(r.id)).includes(r.deleteToken));
+});
+
+test('공유 API: 하루 전체 상한을 넘으면 429, 다음 날은 다시 받는다', async () => {
+  const store = memoryStore();
+  for (let i = 0; i < 3; i++) assert.equal((await handleShare(post(bytes(10)), store, { dailyCap: 3 }, NOW)).status, 201);
+  const over = await handleShare(post(bytes(10)), store, { dailyCap: 3 }, NOW);
+  assert.equal(over.status, 429);
+  assert.match(((await over.json()) as { message: string }).message, /오늘/);
+  assert.equal(store.size(), 3);
+  assert.equal((await handleShare(post(bytes(10)), store, { dailyCap: 3 }, later(1))).status, 201);
+  assert.equal(DAILY_CAP, 500);
+  // 잘못된 요청은 상한을 채우지 않는다
+  const s2 = memoryStore();
+  for (let i = 0; i < 5; i++) await handleShare(post(new Uint8Array(0)), s2, { dailyCap: 1 }, NOW);
+  assert.equal((await handleShare(post(bytes(10)), s2, { dailyCap: 1 }, NOW)).status, 201);
+});
+
+test('공유 API: 긴급 정지(SHARE_UPLOADS=off)면 업로드만 막고 열람은 된다', async () => {
+  const store = memoryStore();
+  const r = await upload(store);
+  assert.equal((await handleShare(post(bytes(10)), store, { uploads: 'OFF' }, NOW)).status, 503);
+  assert.equal((await handleShare(new Request(url('/api/share/' + r.id)), store, { uploads: 'off' }, NOW)).status, 200);
 });
 
 test('공유 API: 받은 암호문을 그대로 돌려주고, 캐시·다른 출처 설정이 맞다', async () => {
   const store = memoryStore();
   const r = await upload(store);
-  const res = await handleShare(new Request(url('/api/share/' + r.id)), store, { token: TOKEN }, NOW);
+  const res = await handleShare(new Request(url('/api/share/' + r.id)), store, {}, NOW);
   assert.equal(res.status, 200);
   assert.deepEqual(new Uint8Array(await res.arrayBuffer()), bytes(100));
   assert.equal(res.headers.get('Cache-Control'), 'no-store');
   assert.equal(res.headers.get('Access-Control-Allow-Origin'), '*');
-  const pre = await handleShare(new Request(url('/api/share'), { method: 'OPTIONS' }), store, { token: TOKEN }, NOW);
+  const pre = await handleShare(new Request(url('/api/share'), { method: 'OPTIONS' }), store, {}, NOW);
   assert.equal(pre.status, 204);
-  assert.match(pre.headers.get('Access-Control-Allow-Headers') ?? '', /Authorization/);
+  assert.match(pre.headers.get('Access-Control-Allow-Headers') ?? '', /X-Delete-Token/);
 });
 
 test('공유 API: 크기·일수·번호 형식을 검사한다', async () => {
   const store = memoryStore();
-  assert.equal((await handleShare(post(bytes(MAX_BYTES + 1)), store, { token: TOKEN }, NOW)).status, 413);
-  assert.equal((await handleShare(post(new Uint8Array(0)), store, { token: TOKEN }, NOW)).status, 400);
-  assert.equal((await handleShare(post(bytes(10), {}, '?days=0'), store, { token: TOKEN }, NOW)).status, 400);
-  assert.equal((await handleShare(post(bytes(10), {}, '?days=91'), store, { token: TOKEN }, NOW)).status, 400);
+  assert.equal((await handleShare(post(bytes(MAX_BYTES + 1)), store, {}, NOW)).status, 413);
+  assert.equal((await handleShare(post(new Uint8Array(0)), store, {}, NOW)).status, 400);
+  assert.equal((await handleShare(post(bytes(10), '?days=0'), store, {}, NOW)).status, 400);
+  assert.equal((await handleShare(post(bytes(10), '?days=31'), store, {}, NOW)).status, 400);
   assert.equal((await upload(store, '?days=7')).expiresAt, later(7).toISOString());
   for (const bad of ['/api/share/../x', '/api/share/short', '/api/share/' + 'a'.repeat(17), '/api/other']) {
-    assert.equal((await handleShare(new Request(url(bad)), store, { token: TOKEN }, NOW)).status, 404, bad);
+    assert.equal((await handleShare(new Request(url(bad)), store, {}, NOW)).status, 404, bad);
   }
-  assert.equal((await handleShare(new Request(url('/api/share')), store, { token: TOKEN }, NOW)).status, 405, '목록 조회 없음');
+  assert.equal((await handleShare(new Request(url('/api/share')), store, {}, NOW)).status, 405, '목록 조회 없음');
 });
 
 test('공유 API: 만료되면 열리지 않고 지워지며, 매일 정리가 열지 않은 공유도 지운다', async () => {
@@ -88,7 +105,7 @@ test('공유 API: 삭제 토큰이 맞을 때만 지운다', async () => {
   const store = memoryStore();
   const r = await upload(store);
   const del = (token: string) => handleShare(new Request(url('/api/share/' + r.id), { method: 'DELETE', headers: { 'X-Delete-Token': token } }),
-    store, { token: TOKEN }, NOW);
+    store, {}, NOW);
   assert.equal((await del('wrong')).status, 403);
   assert.equal(store.size(), 1);
   assert.equal((await del(r.deleteToken)).status, 204);

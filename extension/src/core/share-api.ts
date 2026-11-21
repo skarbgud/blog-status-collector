@@ -1,9 +1,11 @@
 // 짧은 공유 링크의 서버 쪽(Netlify Function). 저장소를 주입받는 순수 처리기라 Node 테스트로 확인한다.
 // 서버가 받는 것은 브라우저에서 암호화한 암호문뿐이다. 푸는 키는 링크의 # 뒤에만 있고 서버로 오지 않는다.
-//   POST   /api/share?days=N     암호문 저장(쓰기 토큰 필요) → { id, deleteToken, expiresAt }
+//   POST   /api/share?days=N     암호문 저장 → { id, deleteToken, expiresAt }
 //   GET    /api/share/<id>       암호문(만료됐으면 지우고 404)
 //   DELETE /api/share/<id>       X-Delete-Token이 맞으면 삭제
-// 쓰기 토큰(SHARE_WRITE_TOKEN)이 없으면 저장을 받지 않는다(남이 이 사이트를 저장소로 쓰지 못하게).
+// 확장을 설치한 누구나 공유할 수 있게 인증은 없다(2026-11-21 결정). 대신 남용을 막는다:
+//   공유 하나 1MB 이하, 보관 최대 30일, 하루 전체 업로드 500건(카운터), IP당 3분에 5회(Netlify rateLimit, 함수 설정),
+//   긴급 정지(환경변수 SHARE_UPLOADS=off). 넘치면 과금이 아니라 거절·일시 정지다(무료 요금제).
 
 export interface ShareMeta {
   createdAt: string;
@@ -19,17 +21,27 @@ export interface ShareStore {
   set(id: string, data: ArrayBuffer, meta: ShareMeta): Promise<void>;
   delete(id: string): Promise<void>;
   list(): Promise<string[]>;
+  /** 그 날(UTC YYYY-MM-DD) 업로드 수를 1 올리고 올린 값을 돌려준다. 동시 요청에서 조금 덜 셀 수 있다(상한이 대략이면 충분) */
+  bumpDaily(day: string): Promise<number>;
 }
 
-export const MAX_BYTES = 2 * 1024 * 1024;
+export interface ShareEnv {
+  /** 'off'면 업로드를 받지 않는다(긴급 정지). 열람·삭제는 계속 된다 */
+  uploads?: string;
+  /** 하루 전체 업로드 상한(기본 DAILY_CAP) */
+  dailyCap?: number;
+}
+
+export const MAX_BYTES = 1024 * 1024;
 export const DEFAULT_DAYS = 30;
-export const MAX_DAYS = 90;
+export const MAX_DAYS = 30;
+export const DAILY_CAP = 500;
 export const ID_PATTERN = /^[A-Za-z0-9_-]{16}$/;
 
 const CORS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Delete-Token',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Delete-Token',
   'Access-Control-Max-Age': '600',
 };
 const BASE: Record<string, string> = { ...CORS, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -60,7 +72,7 @@ function sameText(a: string, b: string): boolean {
 
 const expired = (meta: ShareMeta, now: Date) => !(Date.parse(meta.expiresAt) > now.getTime());
 
-export async function handleShare(req: Request, store: ShareStore, env: { token?: string }, now = new Date()): Promise<Response> {
+export async function handleShare(req: Request, store: ShareStore, env: ShareEnv = {}, now = new Date()): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   const url = new URL(req.url);
   const m = /^\/api\/share(?:\/([^/]*))?\/?$/.exec(url.pathname);
@@ -69,9 +81,7 @@ export async function handleShare(req: Request, store: ShareStore, env: { token?
 
   if (id === undefined || id === '') {
     if (req.method !== 'POST') return fail(405, '허용하지 않는 요청입니다.');
-    if (!env.token) return fail(503, '이 사이트에 쓰기 토큰(SHARE_WRITE_TOKEN)이 설정되지 않아 공유를 저장할 수 없습니다.');
-    const auth = req.headers.get('Authorization') ?? '';
-    if (!sameText(auth, 'Bearer ' + env.token)) return fail(401, '쓰기 토큰이 맞지 않습니다.');
+    if ((env.uploads ?? '').trim().toLowerCase() === 'off') return fail(503, '지금은 공유를 잠시 멈췄습니다. 나중에 다시 시도해 주세요.');
     const declared = Number(req.headers.get('Content-Length') ?? '0');
     if (declared > MAX_BYTES) return fail(413, '공유 데이터가 너무 큽니다.');
     const data = await req.arrayBuffer();
@@ -80,6 +90,9 @@ export async function handleShare(req: Request, store: ShareStore, env: { token?
     const daysRaw = url.searchParams.get('days');
     const days = daysRaw === null ? DEFAULT_DAYS : Number(daysRaw);
     if (!Number.isInteger(days) || days < 1 || days > MAX_DAYS) return fail(400, '보관 일수는 1~' + MAX_DAYS + '일입니다.');
+    // 하루 전체 상한: 검사를 통과한 요청만 센다(잘못된 요청으로 상한을 채우지 못하게)
+    const count = await store.bumpDaily(now.toISOString().slice(0, 10));
+    if (count > (env.dailyCap ?? DAILY_CAP)) return fail(429, '오늘 만들 수 있는 공유 수를 넘었습니다. 내일 다시 시도해 주세요.');
     const newId = randomId(12);
     const deleteToken = randomId(18);
     const meta: ShareMeta = {

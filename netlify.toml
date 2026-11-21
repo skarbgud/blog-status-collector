@@ -1,6 +1,7 @@
 # 공유 링크 보기 페이지(Netlify). 확장 대시보드 화면(정적)과 짧은 링크 API(함수 + Netlify Blobs).
 # Blobs에는 브라우저에서 암호화한 암호문만 들어간다. 푸는 키는 링크의 # 뒤에만 있고 서버로 오지 않는다.
-# 필요한 환경변수: SHARE_WRITE_TOKEN(확장이 공유를 올릴 때 쓰는 비밀값. 없으면 저장을 받지 않는다).
+# 업로드는 인증 없이 누구나(확장 사용자) 한다. 남용 방지: IP당 3분 5회(함수 rateLimit), 하루 500건, 1MB, 30일.
+# 긴급 정지: 환경변수 SHARE_UPLOADS=off (업로드만 멈추고 열람은 된다).
 [build]
   base = "extension"
   command = "npm ci && npm run build:viewer"
