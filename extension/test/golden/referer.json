@@ -1,0 +1,101 @@
+{
+  "normal" : {
+    "urls" : [ "/api/blog/daily/referer/total?timeDimension=DATE&additionalTimeDimension=WEEK&startDate=2026-01-02&exclude=weekAndMonthAnalysis", "/api/blog/daily/referer/total/detail?timeDimension=DATE&additionalTimeDimension=WEEK&startDate=2026-01-02&searchEngine=1&refererDomain=%EA%B2%80%EC%83%89B%20%EB%AA%A8%EB%B0%94%EC%9D%BC&size=100&exclude=", "/api/blog/daily/referer/total/detail?timeDimension=DATE&additionalTimeDimension=WEEK&startDate=2026-01-02&searchEngine=1&refererDomain=%EA%B2%80%EC%83%89C%26D&size=100&exclude=" ],
+    "today" : false,
+    "totalCount" : 100,
+    "rows" : [ {
+      "date" : "2026-01-02",
+      "referrer" : "도메인A_모바일",
+      "searchEngine" : false,
+      "visits" : 50,
+      "ratio" : 50.0
+    }, {
+      "date" : "2026-01-02",
+      "referrer" : "검색B 모바일",
+      "searchEngine" : true,
+      "visits" : 30,
+      "ratio" : 30.0
+    }, {
+      "date" : "2026-01-02",
+      "referrer" : "검색C&D",
+      "searchEngine" : true,
+      "visits" : 15,
+      "ratio" : 15.0
+    }, {
+      "date" : "2026-01-02",
+      "referrer" : "사이트E",
+      "searchEngine" : false,
+      "visits" : 5,
+      "ratio" : 5.0
+    } ],
+    "queries" : [ {
+      "date" : "2026-01-02",
+      "referrer" : "검색B 모바일",
+      "query" : "검색어 하나",
+      "visits" : 20,
+      "ratio" : 66.7
+    }, {
+      "date" : "2026-01-02",
+      "referrer" : "검색B 모바일",
+      "query" : "공백 있는 검색어",
+      "visits" : 6,
+      "ratio" : 20.0
+    }, {
+      "date" : "2026-01-02",
+      "referrer" : "검색B 모바일",
+      "query" : "검색어 하나",
+      "visits" : 3,
+      "ratio" : 10.0
+    } ]
+  },
+  "today" : {
+    "urls" : [ "/api/blog/daily/referer/total?timeDimension=DATE&additionalTimeDimension=WEEK&startDate=2026-01-02&exclude=weekAndMonthAnalysis" ],
+    "today" : true,
+    "totalCount" : 100,
+    "rows" : [ {
+      "date" : "2026-01-02",
+      "referrer" : "도메인A_모바일",
+      "searchEngine" : false,
+      "visits" : 50,
+      "ratio" : 50.0
+    }, {
+      "date" : "2026-01-02",
+      "referrer" : "검색B 모바일",
+      "searchEngine" : true,
+      "visits" : 30,
+      "ratio" : 30.0
+    }, {
+      "date" : "2026-01-02",
+      "referrer" : "검색C&D",
+      "searchEngine" : true,
+      "visits" : 15,
+      "ratio" : 15.0
+    }, {
+      "date" : "2026-01-02",
+      "referrer" : "사이트E",
+      "searchEngine" : false,
+      "visits" : 5,
+      "ratio" : 5.0
+    } ],
+    "queries" : [ ]
+  },
+  "parseErrors" : [ {
+    "name" : "합계 불일치",
+    "error" : true
+  }, {
+    "name" : "날짜 불일치",
+    "error" : true
+  }, {
+    "name" : "블록 없음",
+    "error" : true
+  }, {
+    "name" : "컬럼 길이 다름",
+    "error" : true
+  }, {
+    "name" : "컬럼 없음",
+    "error" : true
+  }, {
+    "name" : "statusCode",
+    "error" : true
+  } ]
+}

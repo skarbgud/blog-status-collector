@@ -3,13 +3,16 @@
 // - 쿠키는 브라우저가 붙인다. 확장은 쿠키 값을 읽지도 저장하지도 않는다.
 // - 요청 사이 2~5초 지연, 회차당 요청 상한, 로그인 만료나 네트워크 오류 뒤 차단을 이 클래스가 강제한다.
 
+import { ALL } from './specs.js';
+
 export const STAT_ORIGIN = 'https://blog.stat.naver.com';
 
-/** 허용 경로. 카탈로그(2026-11-21)에서 확인한 API만 넣는다. 새 API는 여기에 먼저 추가한다. */
+/** 허용 경로. 카탈로그(2026-11-21)에서 확인한 API만 넣는다. 새 API는 지표 정의(specs.ts)나 여기에 먼저 추가한다. */
 const ALLOWED_PATHS = new Set<string>([
   '/api/blog/user-info',
   '/api/blog/daily/referer/total',
   '/api/blog/daily/referer/total/detail',
+  ...ALL.map((s) => s.path),
 ]);
 
 /** 로그인 만료(401/403, 로그인 페이지로 리다이렉트, JSON이 아닌 응답). 재시도하지 않는다. */
@@ -18,6 +21,12 @@ export class SessionExpiredError extends Error {}
 export class BudgetExceededError extends Error {}
 /** 이전 요청이 만료·네트워크 오류로 끝나 이 회차가 막힌 상태. */
 export class ClientBlockedError extends Error {}
+/** 200이 아닌 응답(만료 제외). 그 요청만 실패로 보고 수집은 계속한다. 게시글 400은 삭제 글로 처리한다. */
+export class HttpStatusError extends Error {
+  constructor(readonly status: number, label: string) {
+    super(label + ' 수집 실패: HTTP ' + status);
+  }
+}
 
 export interface StatResponse {
   status: number;
@@ -29,10 +38,18 @@ export function statUrl(path: string, params: Record<string, string> = {}): URL 
     throw new Error('허용 목록에 없는 경로: ' + path);
   }
   const url = new URL(path, STAT_ORIGIN);
-  for (const [k, v] of Object.entries(params)) {
-    url.searchParams.set(k, v);
-  }
+  url.search = buildQuery(params);
   return url;
+}
+
+/** Java URLEncoder와 같은 퍼센트 인코딩(공백은 화면처럼 %20). */
+export function encodeParam(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()~]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+}
+
+/** 쿼리 문자열. 넣은 순서를 지킨다(화면·Java 버전과 같은 순서). */
+export function buildQuery(params: Record<string, string>): string {
+  return Object.entries(params).map(([k, v]) => k + '=' + encodeParam(v)).join('&');
 }
 
 export interface StatClientOptions {
@@ -58,7 +75,14 @@ export class StatClient {
     return this.used;
   }
 
-  async get(path: string, params: Record<string, string> = {}): Promise<StatResponse> {
+  /** 200 응답 본문. 200이 아니면 HttpStatusError(만료는 SessionExpiredError). */
+  async get(path: string, params: Record<string, string> = {}, label = path): Promise<string> {
+    const res = await this.request(path, params);
+    if (res.status !== 200) throw new HttpStatusError(res.status, label);
+    return res.body;
+  }
+
+  async request(path: string, params: Record<string, string> = {}): Promise<StatResponse> {
     if (this.blocked) throw new ClientBlockedError(this.blocked);
     if (this.used >= this.opts.maxRequests) {
       throw new BudgetExceededError('이번 회차 요청 상한 ' + this.opts.maxRequests + '회에 도달');

@@ -37,7 +37,7 @@ async function runPoc(): Promise<PocReport> {
 
   // 1) 로그인 판정. baUserKey는 읽지 않고 blogId만 쓴다.
   try {
-    const res = await client.get('/api/blog/user-info');
+    const res = await client.request('/api/blog/user-info');
     report.login.http = res.status;
     const json = JSON.parse(res.body) as { blogId?: unknown; result?: { blogId?: unknown } };
     const blogId = json.blogId ?? json.result?.blogId;
@@ -52,7 +52,7 @@ async function runPoc(): Promise<PocReport> {
     for (let i = 1; i <= POC_DAYS; i++) {
       const date = kstDate(-i);
       try {
-        const res = await client.get('/api/blog/daily/referer/total', {
+        const res = await client.request('/api/blog/daily/referer/total', {
           timeDimension: 'DATE', additionalTimeDimension: 'WEEK', startDate: date, exclude: 'weekAndMonthAnalysis',
         });
         report.days.push({ date, http: res.status, ...checkReferer(res.body, date) });
