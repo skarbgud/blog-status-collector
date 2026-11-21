@@ -34,8 +34,8 @@ class CatalogSupportTest {
 
     @Test
     void 글_번호가_다른_같은_종류의_화면은_같은_패턴이다() {
-        assertThat(CatalogSupport.pagePattern("https://blog.stat.naver.com/m/blog/article/224476308011/cv"))
-                .isEqualTo(CatalogSupport.pagePattern("https://blog.stat.naver.com/m/blog/article/224440800651/cv"))
+        assertThat(CatalogSupport.pagePattern("https://blog.stat.naver.com/m/blog/article/224000000101/cv"))
+                .isEqualTo(CatalogSupport.pagePattern("https://blog.stat.naver.com/m/blog/article/224000000102/cv"))
                 .isEqualTo("https://blog.stat.naver.com/m/blog/article/{id}/cv");
         assertThat(CatalogSupport.pagePattern("https://blog.stat.naver.com/m/blog/daily/cv"))
                 .isEqualTo("https://blog.stat.naver.com/m/blog/daily/cv");

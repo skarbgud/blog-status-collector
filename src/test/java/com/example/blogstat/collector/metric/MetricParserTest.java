@@ -129,10 +129,10 @@ class MetricParserTest {
     void 게시글별_시계열은_게시글_번호를_행_구분으로_쓴다() {
         String json = body("cv", "{\"date\":[\"2026-11-20\",\"2026-11-19\"],\"cv\":[14,6],\"cv_p\":[2.2,0.9]}");
 
-        List<MetricRow> rows = parser.parse(json, MetricSpecs.ARTICLE_CV, DAY, TODAY, NOW, "224476308011");
+        List<MetricRow> rows = parser.parse(json, MetricSpecs.ARTICLE_CV, DAY, TODAY, NOW, "224000000101");
 
         assertEquals(2, rows.size());
-        assertEquals("224476308011", rows.get(0).getRowKey());
+        assertEquals("224000000101", rows.get(0).getRowKey());
         assertEquals("ARTICLE_CV", rows.get(0).getMetric());
         assertEquals("{\"cv\":14,\"cv_p\":2.2}", rows.get(0).getPayload());
     }

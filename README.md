@@ -8,6 +8,9 @@
 | **v2 크롬 확장** | [`extension/`](extension/README.md) | 현재 버전. 수집·저장·대시보드가 모두 내 크롬 안에서 돈다. 서버도 DB 서버도 없다 |
 | v1 Java | `src/` (태그 `v1.0.0`) | 보존. 확장 이식의 골든 데이터 생성기와 비교 기준으로 남겨 둔다 |
 
+> **이용 시 주의.** 네이버가 공개하지 않은 내부 API를 부른다. 네이버가 허락하거나 보증한 도구가 아니며, API가 바뀌면 언제든 동작하지 않을 수 있다.
+> **본인 블로그의 통계만, 저빈도로** 받는 용도다. 다른 사람의 계정·통계를 수집하거나, 요청 간격을 더 줄이거나, 여러 계정을 대량으로 돌리는 데 쓰지 않는다. 네이버 이용약관과 계정 보호 조치(요청 제한·로그인 차단)에 대한 책임은 사용하는 사람에게 있다.
+
 ## v2 크롬 확장
 
 TypeScript · Chrome MV3 (offscreen document) · SQLite WASM (OPFS) · Highcharts · three.js · node:test
@@ -82,6 +85,10 @@ Java 17 · Spring Boot 3.5 · Spring Data JPA · H2 · Playwright for Java · JU
 
 - 확장: `cd extension && npm test` (124건). 파서·수집 계획의 Java 골든 일치, 저장 멱등성, 수집 회차(시각·상한·로그인 만료·이어 받기), 조회 계층, URL 풀이, 가져오기, 비교 도구
 - Java: `./gradlew test`. 실제 응답을 저장한 픽스처로 파서를, `@DataJpaTest`로 저장 멱등성을, 왕복 테스트로 스냅샷을, 스모크 테스트로 대시보드 기동을 확인한다
+
+## 라이선스
+
+[MIT](LICENSE). 의존 라이브러리는 각자의 라이선스를 따른다. 특히 Highcharts는 개인·비상업 용도만 무료이므로, 상업적으로 쓰거나 배포하려면 [Highcharts 라이선스](https://www.highcharts.com/license)를 따로 확인한다(three.js는 MIT, `@sqlite.org/sqlite-wasm`은 Apache-2.0).
 
 ## 개인 데이터
 

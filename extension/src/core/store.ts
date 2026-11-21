@@ -31,7 +31,7 @@ export class SqlMetricStore implements MetricStore {
     return new Set(rows.map((r) => String(r.row_key)));
   }
 
-  /** 순위의 uri(예: http://blog.naver.com/아이디/224476308011) 마지막 마디가 게시글 번호다. */
+  /** 순위의 uri(예: http://blog.naver.com/아이디/224000000101) 마지막 마디가 게시글 번호다. */
   async postIds(from: string, to: string): Promise<string[]> {
     const rows = await this.sql.query(
       'SELECT payload FROM metric_row WHERE metric IN (' + placeholders(RANK_METRICS.length) + ') AND stat_date BETWEEN ? AND ?',
