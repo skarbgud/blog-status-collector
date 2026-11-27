@@ -1,5 +1,5 @@
 // 네이버 통계 API 호출의 유일한 통로(StatClient).
-// - 호스트는 blog.stat.naver.com, 경로는 아래 허용 목록, 메서드는 GET만 쓴다.
+// - 호스트는 blog.stat.naver.com(통계)과 creator-advisor.naver.com(게시글별 사용시간, 2026-11-27), 경로는 아래 허용 목록, 메서드는 GET만 쓴다.
 // - 쿠키는 브라우저가 붙인다. 확장은 쿠키 값을 쓰지도 저장하지도 않는다
 //   (서비스 워커가 로그인 쿠키가 "있는지"만 확인해 로그아웃 상태에서는 요청을 보내지 않는다).
 // - 요청 사이 1~2초 지연(2026-11-21 사용자 결정, 처음 30일 채우기 47분 → 약 20분), 재시도·백오프, 회차당 요청 상한, 로그인 만료 뒤 차단을 이 클래스가 강제한다(Java StatSession).
@@ -8,6 +8,10 @@ import { ALL } from './specs.js';
 
 export const STAT_ORIGIN = 'https://blog.stat.naver.com';
 export const USER_INFO_PATH = '/api/blog/user-info';
+/** 크리에이터 어드바이저. 게시글별 일 조회수·평균 사용시간(초)·공감(core/post-duration.ts). */
+export const CREATOR_ORIGIN = 'https://creator-advisor.naver.com';
+export const CREATOR_SUMMARY_PATH = '/api/v6/integrated-analysis/content-summary';
+const CREATOR_PATHS = new Set<string>([CREATOR_SUMMARY_PATH]);
 
 /** 허용 경로. 카탈로그(2026-11-21)에서 확인한 API만 넣는다. 새 API는 지표 정의(specs.ts)나 여기에 먼저 추가한다. */
 const ALLOWED_PATHS = new Set<string>([
@@ -38,10 +42,10 @@ export interface StatResponse {
 }
 
 export function statUrl(path: string, params: Record<string, string> = {}): URL {
-  if (!ALLOWED_PATHS.has(path)) {
+  if (!ALLOWED_PATHS.has(path) && !CREATOR_PATHS.has(path)) {
     throw new Error('허용 목록에 없는 경로: ' + path);
   }
-  const url = new URL(path, STAT_ORIGIN);
+  const url = new URL(path, CREATOR_PATHS.has(path) ? CREATOR_ORIGIN : STAT_ORIGIN);
   url.search = buildQuery(params);
   return url;
 }

@@ -213,6 +213,7 @@
   <nav class="nav" aria-label="화면">
     <a href="#/overview" data-nav="overview" class="active">개요</a>
     <a href="#/referer" data-nav="referer">유입분석</a>
+    <a href="#/duration" data-nav="duration">사용시간 합계</a>
     <a href="#/metrics" data-nav="metrics">블로그 지표</a>
     <a href="#/trends" data-nav="trends">검색어 변화</a>
     <a href="#/queries" data-nav="queries">검색어</a>
@@ -288,6 +289,50 @@
   </div>
   </section>
 
+  <section class="view" data-view="duration" hidden>
+  <div class="sec-head"><h2>사용시간 합계</h2><span class="sub" id="du-range"></span></div>
+  <!-- 빈 화면·오류. dashboard-duration.js가 문구를 채운다 -->
+  <div class="ov-state" id="du-state" role="status" hidden>
+    <div class="ov-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+    <p class="ov-state-title" id="du-state-title"></p>
+    <p class="ov-state-desc" id="du-state-desc"></p>
+  </div>
+  <div id="du-body" hidden>
+  <div class="cards">
+    <div class="card" title="조회수 × 평균 사용시간을 모든 게시글에 대해 더한 값이에요. 독자가 글을 읽으며 머문 시간의 합계예요."><div class="label">총 사용시간</div><div class="value" id="du-total">-</div></div>
+    <div class="card" title="총 사용시간 ÷ 조회수"><div class="label">조회 1회당 평균</div><div class="value" id="du-avg">-</div></div>
+    <div class="card"><div class="label">게시글 조회수</div><div class="value" id="du-views">-</div></div>
+    <div class="card" title="순위에 조회가 나온 (게시글, 날짜) 중 사용시간을 받은 비율이에요. 100%가 아니면 아직 받는 중이에요."><div class="label">받은 비율</div><div class="value" id="du-cover">-</div></div>
+  </div>
+  <div class="panel">
+    <div class="du-head">
+      <h2>기간별 사용시간</h2>
+      <div class="du-seg" id="du-unit" role="group" aria-label="묶는 단위">
+        <button type="button" data-u="daily" class="active">일</button>
+        <button type="button" data-u="weekly">주</button>
+        <button type="button" data-u="monthly">월</button>
+      </div>
+    </div>
+    <div class="chart-box"><div id="du-chart" class="chart"></div></div>
+    <div class="du-scroll">
+      <table>
+        <thead><tr><th>기간</th><th>조회</th><th>사용시간</th><th>평균</th></tr></thead>
+        <tbody id="du-periods"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>게시글별 사용시간</h2>
+    <div class="du-scroll">
+      <table>
+        <thead><tr><th>게시글</th><th>조회</th><th>사용시간</th><th>평균</th></tr></thead>
+        <tbody id="du-posts"></tbody>
+      </table>
+    </div>
+  </div>
+  <p class="du-note" id="du-note"></p>
+  </div>
+  </section>
   <section class="view" data-view="referer" hidden>
   <div class="sec-head" id="referer-panel">
     <h2>유입분석</h2><span class="sub" id="r-range"></span>
@@ -584,6 +629,7 @@
 <script src="dashboard-trends.js"></script>
 <script src="dashboard-referer.js"></script>
 <script src="dashboard-metrics.js"></script>
+<script src="dashboard-duration.js"></script>
 <script type="module" src="dashboard-hours.js"></script>
 </body>
 </html>

@@ -3,7 +3,7 @@
 // 데이터는 화면과 상관없이 각 스크립트가 기간이 바뀔 때 불러 두고, 여기서는 보이기만 바꾼다.
 // 숨겨진 채로 그려진 Highcharts는 폭이 틀어지므로 화면이 보일 때 reflow한다.
 (function () {
-  const VIEWS = ['overview', 'referer', 'metrics', 'trends', 'queries'];
+  const VIEWS = ['overview', 'referer', 'duration', 'metrics', 'trends', 'queries'];
   const LEGACY = {
     overview: 'overview', 'referer-panel': 'referer', 'metrics-panel': 'metrics',
     'trends-panel': 'trends', 'queries-panel': 'queries',

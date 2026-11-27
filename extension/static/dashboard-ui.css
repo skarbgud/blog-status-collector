@@ -6,7 +6,7 @@
 /* ---- 바깥 틀 ---- */
 body { background: var(--color-bg); color: var(--color-text); font-family: var(--font-sans); }
 /* 한글은 단어 중간에서 끊지 않는다. 옮긴 영역에만 적용(이전 화면의 표 폭이 바뀌지 않게). */
-.sidebar, .banner, [data-view="overview"] { word-break: keep-all; overflow-wrap: anywhere; }
+.sidebar, .banner, :is([data-view="overview"], [data-view="duration"]) { word-break: keep-all; overflow-wrap: anywhere; }
 .layout { gap: var(--space-6); padding: 0 var(--page-gutter); }
 .sidebar { padding: var(--space-6) 0; gap: var(--space-6); }
 main { padding: var(--space-6) 0 var(--space-10); }
@@ -75,40 +75,40 @@ main:has(> [data-view="overview"]:not([hidden])) > #msg { display: none; }
 
 /* ---- 개요 화면 ----
    차트(charts.js)는 놓인 요소에서 --text 같은 이전 변수 이름을 읽는다. 이 화면 안에서만 의미 토큰으로 다시 묶는다. */
-[data-view="overview"] {
+:is([data-view="overview"], [data-view="duration"]) {
   --text: var(--color-text-strong); --muted: var(--color-text-caption); --line: var(--color-line);
   --grid: var(--color-grid); --card: var(--color-surface);
   font-size: var(--text-body); line-height: var(--leading-normal);
 }
-[data-view="overview"] .sec-head { margin: 0 0 var(--space-5); }
-[data-view="overview"] .sec-head h2 { font-size: var(--text-title); font-weight: var(--weight-bold); line-height: var(--leading-tight);
+:is([data-view="overview"], [data-view="duration"]) .sec-head { margin: 0 0 var(--space-5); }
+:is([data-view="overview"], [data-view="duration"]) .sec-head h2 { font-size: var(--text-title); font-weight: var(--weight-bold); line-height: var(--leading-tight);
   letter-spacing: var(--tracking-tight); color: var(--color-text-strong); }
-[data-view="overview"] .sec-head .sub { font-size: var(--text-caption); color: var(--color-text-caption); font-variant-numeric: tabular-nums; }
+:is([data-view="overview"], [data-view="duration"]) .sec-head .sub { font-size: var(--text-caption); color: var(--color-text-caption); font-variant-numeric: tabular-nums; }
 
 /* 요약 숫자 4개: 카드 네 장이 아니라 흰 섹션 하나 안에 나란히. */
-[data-view="overview"] .cards { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-5) var(--space-4);
+:is([data-view="overview"], [data-view="duration"]) .cards { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-5) var(--space-4);
   margin-bottom: var(--space-3); padding: var(--space-6); background: var(--color-surface); border-radius: var(--radius-card); }
-[data-view="overview"] .card { background: none; border: 0; border-radius: 0; padding: 0; min-width: 0; }
-[data-view="overview"] .card .label { font-size: var(--text-caption); color: var(--color-text-sub); }
-[data-view="overview"] .card .value { margin-top: var(--space-1); font-size: var(--text-heading); font-weight: var(--weight-bold);
+:is([data-view="overview"], [data-view="duration"]) .card { background: none; border: 0; border-radius: 0; padding: 0; min-width: 0; }
+:is([data-view="overview"], [data-view="duration"]) .card .label { font-size: var(--text-caption); color: var(--color-text-sub); }
+:is([data-view="overview"], [data-view="duration"]) .card .value { margin-top: var(--space-1); font-size: var(--text-heading); font-weight: var(--weight-bold);
   line-height: var(--leading-tight); letter-spacing: var(--tracking-tight); color: var(--color-text-strong); font-variant-numeric: tabular-nums; }
 
-[data-view="overview"] .panel { border: 0; border-radius: var(--radius-card); padding: var(--space-6); margin-bottom: var(--space-3);
+:is([data-view="overview"], [data-view="duration"]) .panel { border: 0; border-radius: var(--radius-card); padding: var(--space-6); margin-bottom: var(--space-3);
   background: var(--color-surface); }
-[data-view="overview"] .panel h2 { font-size: var(--text-label); font-weight: var(--weight-semibold); line-height: var(--leading-tight);
+:is([data-view="overview"], [data-view="duration"]) .panel h2 { font-size: var(--text-label); font-weight: var(--weight-semibold); line-height: var(--leading-tight);
   color: var(--color-text-strong); margin: 0 0 var(--space-4); }
-[data-view="overview"] .grid2 { gap: var(--space-3); }
-[data-view="overview"] .grid2 > .panel { margin-bottom: 0; }
+:is([data-view="overview"], [data-view="duration"]) .grid2 { gap: var(--space-3); }
+:is([data-view="overview"], [data-view="duration"]) .grid2 > .panel { margin-bottom: 0; }
 
 /* 유입처 순위: 세로선 없이, 행 사이에만 옅은 구분선. */
-[data-view="overview"] table { font-variant-numeric: tabular-nums; }
-[data-view="overview"] th { font-size: var(--text-caption); font-weight: var(--weight-regular); color: var(--color-text-caption);
+:is([data-view="overview"], [data-view="duration"]) table { font-variant-numeric: tabular-nums; }
+:is([data-view="overview"], [data-view="duration"]) th { font-size: var(--text-caption); font-weight: var(--weight-regular); color: var(--color-text-caption);
   padding: 0 0 var(--space-2); border-bottom: 1px solid var(--color-line); }
-[data-view="overview"] td { padding: var(--space-3) 0; border-bottom: 1px solid var(--color-line); color: var(--color-text); }
-[data-view="overview"] td:first-child { color: var(--color-text-strong); padding-right: var(--space-3); overflow-wrap: anywhere; }
-[data-view="overview"] td + td, [data-view="overview"] th + th { padding-left: var(--space-3); }
-[data-view="overview"] tbody tr:last-child td { border-bottom: 0; padding-bottom: 0; }
-[data-view="overview"] .tag { display: inline-block; margin-left: var(--space-2); padding: 0 var(--space-2); border-radius: var(--radius-pill);
+:is([data-view="overview"], [data-view="duration"]) td { padding: var(--space-3) 0; border-bottom: 1px solid var(--color-line); color: var(--color-text); }
+:is([data-view="overview"], [data-view="duration"]) td:first-child { color: var(--color-text-strong); padding-right: var(--space-3); overflow-wrap: anywhere; }
+:is([data-view="overview"], [data-view="duration"]) td + td, :is([data-view="overview"], [data-view="duration"]) th + th { padding-left: var(--space-3); }
+:is([data-view="overview"], [data-view="duration"]) tbody tr:last-child td { border-bottom: 0; padding-bottom: 0; }
+:is([data-view="overview"], [data-view="duration"]) .tag { display: inline-block; margin-left: var(--space-2); padding: 0 var(--space-2); border-radius: var(--radius-pill);
   background: var(--color-fill); color: var(--color-text-sub); font-size: var(--text-caption); line-height: 20px; vertical-align: 1px; }
 
 /* 상태 블록: 빈 화면·오류. 가운데 아이콘 + 한 줄 설명 + 다음 행동 버튼 하나. */
@@ -139,7 +139,29 @@ main:has(> [data-view="overview"]:not([hidden])) > #msg { display: none; }
 @media (prefers-reduced-motion: reduce) { #overview.is-loading .sk { animation: none; } }
 
 @media (max-width: 899px) {
-  [data-view="overview"] .sec-head { margin-bottom: var(--space-4); }
-  [data-view="overview"] .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: var(--space-5); }
-  [data-view="overview"] .panel { padding: var(--space-5); }
+  :is([data-view="overview"], [data-view="duration"]) .sec-head { margin-bottom: var(--space-4); }
+  :is([data-view="overview"], [data-view="duration"]) .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: var(--space-5); }
+  :is([data-view="overview"], [data-view="duration"]) .panel { padding: var(--space-5); }
+}
+
+/* ---- 사용시간 합계(dashboard-duration.js). 개요와 같은 카드·패널 규칙(위 :is)을 쓰고, 단위 선택만 더한다 ---- */
+.du-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+.du-head h2 { margin: 0 !important; }
+.du-seg { display: inline-flex; gap: var(--space-1); padding: var(--space-1); background: var(--color-fill); border-radius: var(--radius-input); }
+.du-seg button { min-width: 48px; height: 32px; padding: 0 var(--space-3); border: 0; border-radius: var(--space-2); background: transparent;
+  font: inherit; font-size: var(--text-caption); color: var(--color-text-sub); cursor: pointer;
+  transition: transform var(--duration-press), background var(--duration-press); }
+.du-seg button:active { transform: scale(var(--press-scale)); }
+.du-seg button.active { background: var(--color-surface); color: var(--color-text-strong); font-weight: var(--weight-semibold); }
+.du-scroll { max-height: 360px; overflow: auto; margin-top: var(--space-3); }
+.du-scroll thead th { position: sticky; top: 0; background: var(--color-surface); }
+[data-view="duration"] td:not(:first-child), [data-view="duration"] th:not(:first-child) { text-align: right; white-space: nowrap; }
+.du-post { display: block; color: var(--color-text-strong); text-decoration: none; }
+.du-post:hover { color: var(--color-accent); }
+.du-sub { display: block; font-size: var(--text-caption); color: var(--color-text-caption); }
+.du-note { margin: var(--space-2) 0 0; font-size: var(--text-caption); color: var(--color-text-caption); }
+@media (max-width: 600px) {
+  /* 좁은 화면: 제목 칸을 넓히려고 평균 열을 숨긴다(전체 평균은 위 카드에 있다) */
+  [data-view="duration"] th:nth-child(4), [data-view="duration"] td:nth-child(4) { display: none; }
+  .du-head { flex-wrap: wrap; }
 }
