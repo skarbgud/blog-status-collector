@@ -165,10 +165,15 @@
     const from = ($('from') as HTMLInputElement | null)?.value ?? '';
     const to = ($('to') as HTMLInputElement | null)?.value ?? '';
     // 기간이 있는 응답은 모두 지금 기간이어야 한다(이전 기간 응답이 섞이지 않게).
-    const stale = [...recorded.entries()].some(([name, b]) => {
-      if (name.startsWith('today-')) return false; // 오늘 유입은 공유하지 않는다(share-codec EXCLUDED)
+    const otherPeriod = (b: unknown) => {
       const r = b as { from?: unknown; to?: unknown } | null;
       return !!r && typeof r === 'object' && typeof r.from === 'string' && (r.from !== from || r.to !== to);
+    };
+    // 사용시간 합계는 그 탭을 열 때만 받으므로, 기간이 다르면 막지 않고 공유에서 뺀다.
+    const LAZY = new Set(['post-duration']);
+    const stale = [...recorded.entries()].some(([name, b]) => {
+      if (name.startsWith('today-') || LAZY.has(name)) return false; // 오늘 유입은 공유하지 않는다(share-codec EXCLUDED)
+      return otherPeriod(b);
     });
     if (!recorded.has('summary') || !recorded.has('metrics') || stale) {
       out.textContent = '화면을 다 불러온 뒤 다시 눌러 주세요. (기간을 바꿨다면 "조회"를 먼저 누르세요)';
@@ -180,7 +185,7 @@
     out.textContent = '암호화해서 올리는 중…';
     try {
       const codec = await import('./core/share-codec.js');
-      const responses = codec.pickResponses(Object.fromEntries(recorded));
+      const responses = codec.pickResponses(Object.fromEntries([...recorded.entries()].filter(([name, b]) => !(LAZY.has(name) && otherPeriod(b)))));
       const createdAt = new Date().toISOString();
       const { body, key } = await codec.sealShare({ v: codec.SHARE_VERSION, createdAt, from, to, responses });
       // 헤더를 붙이지 않는다(Content-Type 없음): 단순 요청이라 미리 확인 요청(OPTIONS)이 생기지 않아 IP당 업로드 수에 세지 않는다.

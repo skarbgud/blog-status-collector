@@ -102,8 +102,8 @@
     // 기간은 링크에 든 것 하나뿐이다.
     document.querySelectorAll<HTMLElement>('.presets, #apply').forEach((e) => { e.hidden = true; e.style.display = 'none'; });
     document.querySelectorAll<HTMLInputElement>('#from, #to').forEach((e) => { e.disabled = true; });
-    // 오늘 유입(집계 중)은 공유에 들어 있지 않다.
-    document.querySelectorAll<HTMLElement>('#r-when, #r-today-refresh').forEach((e) => { e.hidden = true; e.style.display = 'none'; });
+    // 오늘 유입(집계 중)은 공유에 들어 있지 않고, 사용시간은 공유할 때 보던 단위 하나만 들어 있다.
+    document.querySelectorAll<HTMLElement>('#r-when, #r-today-refresh, #du-unit, #du-refresh').forEach((e) => { e.hidden = true; e.style.display = 'none'; });
 
     // 확장 전용 줄(수집 상태, 백업·가져오기)만 숨긴다. 최근 수집일(#s-latest)은 화면 스크립트가 채우므로 둔다.
     const status = document.querySelector('.status');

@@ -20,7 +20,6 @@ import {
   buildQuery, kstDate, kstHour, parseBlogId, type StatClient,
 } from './naver.js';
 import { POOL_LIMIT, runPool } from './pool.js';
-import { fetchDurations, planDurations } from './post-duration.js';
 import { COLLECTED, SERIES_WINDOW_DAYS, isSeries, type MetricSpec } from './specs.js';
 import { deleteSetting, getSetting, setSetting, type Sql } from './sql.js';
 import { SqlMetricStore, SqlRefererStore } from './store.js';
@@ -187,30 +186,19 @@ async function collect(deps: CollectorDeps, client: StatClient, today: string, l
     log('info', '[보충] 시계열·추이 지표의 빈 날짜 구간 ' + back.length + '개를 채웁니다.');
     pending += await runRound(sql, http, { ...rest, refererDates: [], urlDates: [], plans: back }, log, report);
   }
-  // 4단계: 게시글별 사용시간(크리에이터 어드바이저). 순위에 나온 (글, 날짜) 중 아직 없는 것만. 거절되면 이 단계만 멈춘다.
-  let durationNote = '';
-  const windows = await planDurations(sql, rest.from, rest.to, quick.refetchFrom);
-  if (windows.length > 0) {
-    log('info', '[사용시간] 게시글별 사용시간 ' + windows.length + '구간을 받습니다.');
-    const d = await fetchDurations(http, sql, blogId, windows, log, POOL_LIMIT);
-    report.saved.POST_DURATION = (report.saved.POST_DURATION ?? 0) + d.saved;
-    report.failures += d.failures;
-    if (d.stopped) durationNote = ' 게시글별 사용시간은 크리에이터 어드바이저가 거절해 받지 못했습니다(다음 확인 때 다시).';
-  }
-
   const { to } = rest;
   const round = { refetchFrom: quick.refetchFrom };
 
   const failures = report.failures > 0 ? ' 실패 ' + report.failures + '건은 내일 다시 받습니다.' : '';
   if (pending > 0) {
-    finish('partial', '네이버가 아직 집계하지 않은 값 ' + pending + '건은 다음 확인 때 다시 받습니다.' + failures + durationNote);
+    finish('partial', '네이버가 아직 집계하지 않은 값 ' + pending + '건은 다음 확인 때 다시 받습니다.' + failures);
     return;
   }
   await setSetting(sql, S.completeDate, today);
   await setSetting(sql, S.missingAfter, today + '|' + (await missingWork(sql, today)));
   const redone = round.refetchFrom === null ? ''
     : ' ' + (round.refetchFrom === to ? '어제' : round.refetchFrom + ' ~ ' + to) + '는 다시 받아 덮어썼습니다.';
-  finish('done', '어제(' + to + ')까지 받았습니다.' + redone + failures + durationNote);
+  finish('done', '어제(' + to + ')까지 받았습니다.' + redone + failures);
 }
 
 /** 계획 하나를 실행한다: 유입경로·검색어·상세 URL(날짜 동시) → 지표(단계 안 동시). 집계 전으로 미룬 수를 돌려준다. */
@@ -388,8 +376,6 @@ export async function estimateRound(sql: Sql, today: string, refetchDays: number
   for (const d of round.urlDates) n += await detailCount(sql, d, false);
   for (const plan of round.plans) n += await job.estimateRequests(plan);
   for (const plan of await backfillPlans(sql, today)) n += await job.estimateRequests(plan);
-  // 게시글별 사용시간: 지금 저장된 순위 기준(새로 받을 순위의 글은 빠져 어림값이 조금 적다)
-  n += (await planDurations(sql, round.from, round.to, round.refetchFrom)).length;
   return n;
 }
 

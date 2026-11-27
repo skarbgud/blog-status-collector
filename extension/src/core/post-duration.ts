@@ -1,20 +1,20 @@
-// 게시글별 사용시간(크리에이터 어드바이저 content-summary, 2026-11-27).
-// 응답: { data: [{ date, cv, averageDuration(초), likeCount }] }. interval=day만 받는다:
-// 사용시간 합계는 조회수 × 평균의 합이라 더할 수 있어서, 주·월 합계는 일 값을 더해 정확히 구한다(주·월 API를 따로 부르지 않음).
-// 글 목록은 이미 받는 날짜별 조회수 순위(RANK_POST)를 쓴다. 조회가 없는 날은 사용시간도 0이라 순위에 나온 (글, 날짜)만 받으면 된다.
-// 저장: metric_row(metric=POST_DURATION, row_key=게시글 번호, payload={cv, averageDuration, likeCount}).
-// 크리에이터 어드바이저가 거절(401/403/로그인 페이지)하면 이 단계만 멈추고 다음 회차에 다시 한다(통계 로그인 실패로 보지 않음).
+// 게시글별 사용시간(크리에이터 어드바이저 content-summary, 2026-11-27). 저장하지 않고 "사용시간 합계" 탭을 열 때 바로 부른다.
+// 응답: { data: [{ date, cv, averageDuration(초), likeCount }] }. interval=day|week|month(주는 월요일, 월은 1일이 date).
+// 사용시간 = 조회수 × 평균 사용시간. 기간 합계는 모든 게시글의 그 값을 더하고, 게시글 합계는 그 글의 기간 값을 더한다.
+// 글 목록은 이미 수집된 날짜별 조회수 순위(RANK_POST)에서 고른 기간에 조회 > 0으로 나온 글이다(조회가 없으면 사용시간도 0).
+// 크리에이터 어드바이저가 거절(401/403/로그인 페이지)하면 남은 요청을 멈추고 이유를 돌려준다(통계 로그인 실패로 보지 않음).
 import { addDays } from './dates.js';
 import { CREATOR_SUMMARY_PATH, ClientBlockedError, HttpStatusError, SessionExpiredError } from './naver.js';
 import type { JobLog, StatGetter } from './metric-job.js';
-import type { Sql, Stmt } from './sql.js';
+import type { Sql } from './sql.js';
 
-export const POST_DURATION = 'POST_DURATION';
-/** 한 번에 묻는 날짜 수. 화면이 쓰는 기본 창(15일)으로 확인했다. */
-export const DURATION_WINDOW = 15;
+export type DurationUnit = 'day' | 'week' | 'month';
+export const DURATION_UNITS: DurationUnit[] = ['day', 'week', 'month'];
+/** 일 단위 한 번에 묻는 날짜 수(화면이 쓰는 기본 창으로 확인). 주·월은 한 번에 받는다(13주·13개월 확인). */
+export const DAY_WINDOW = 15;
 const POST_ID = /\/(\d{6,})\/?$/;
 
-export interface DurationWindow { postId: string; from: string; to: string }
+export interface Window { from: string; to: string }
 export interface DurationDay { date: string; cv: number; averageDuration: number; likeCount: number }
 
 export class DurationParseError extends Error {}
@@ -25,52 +25,51 @@ export function postIdOf(uri: unknown): string | null {
   return m ? m[1]! : null;
 }
 
-/**
- * 받을 창. [from, to] 안에서 순위에 조회수 > 0으로 나온 (글, 날짜) 중 사용시간이 없는 날짜를 글마다 모아 15일 창으로 묶는다.
- * refetchFrom이 있으면 그 날짜부터는 있어도 다시 받는다("지금 수집"의 다시 받기).
- */
-export async function planDurations(sql: Sql, from: string, to: string, refetchFrom: string | null = null): Promise<DurationWindow[]> {
-  const rank = await sql.query(
-    "SELECT stat_date, payload FROM metric_row WHERE metric = 'RANK_POST' AND row_key <> '_empty' AND stat_date BETWEEN ? AND ?", [from, to]);
-  const have = new Set((await sql.query(
-    'SELECT stat_date, row_key FROM metric_row WHERE metric = ? AND stat_date BETWEEN ? AND ?', [POST_DURATION, from, to]))
-    .map((r) => r.row_key + '|' + r.stat_date));
-  const need = new Map<string, Set<string>>();
-  for (const r of rank) {
-    let v: { uri?: unknown; cv?: unknown };
-    try { v = JSON.parse(String(r.payload)); } catch { continue; }
-    const id = postIdOf(v.uri);
-    const date = String(r.stat_date);
-    if (!id || !(Number(v.cv) > 0)) continue;
-    if (have.has(id + '|' + date) && !(refetchFrom !== null && date >= refetchFrom)) continue;
-    let s = need.get(id);
-    if (!s) need.set(id, (s = new Set()));
-    s.add(date);
-  }
-  const windows: DurationWindow[] = [];
-  for (const id of [...need.keys()].sort()) {
-    const dates = [...need.get(id)!].sort();
-    let i = 0;
-    while (i < dates.length) {
-      const start = dates[i]!;
-      const limit = addDays(start, DURATION_WINDOW - 1);
-      let end = start;
-      while (i < dates.length && dates[i]! <= limit) end = dates[i++]!;
-      windows.push({ postId: id, from: start, to: end });
-    }
-  }
-  return windows;
+export function mondayOf(d: string): string {
+  return addDays(d, -((new Date(d + 'T00:00:00Z').getUTCDay() + 6) % 7));
 }
 
-export function durationParams(blogId: string, w: DurationWindow): Record<string, string> {
+/** 요청 시작일: 주는 그 주 월요일, 월은 1일로 맞춘다(API가 그 날짜를 기간 이름으로 쓴다). */
+export function alignedFrom(unit: DurationUnit, from: string): string {
+  return unit === 'week' ? mondayOf(from) : unit === 'month' ? from.slice(0, 8) + '01' : from;
+}
+
+/** 요청 구간. 일은 15일씩 나누고, 주·월은 한 번. */
+export function windowsFor(unit: DurationUnit, from: string, to: string): Window[] {
+  const start = alignedFrom(unit, from);
+  if (unit !== 'day') return [{ from: start, to }];
+  const out: Window[] = [];
+  for (let d = start; d <= to; d = addDays(d, DAY_WINDOW)) {
+    const end = addDays(d, DAY_WINDOW - 1);
+    out.push({ from: d, to: end < to ? end : to });
+  }
+  return out;
+}
+
+/** 고른 기간에 순위에 조회 > 0으로 나온 게시글 번호(로컬 데이터, 요청 없음). */
+export async function postsInRange(sql: Sql, from: string, to: string): Promise<string[]> {
+  const rows = await sql.query(
+    "SELECT payload FROM metric_row WHERE metric = 'RANK_POST' AND row_key <> '_empty' AND stat_date BETWEEN ? AND ?", [from, to]);
+  const ids = new Set<string>();
+  for (const r of rows) {
+    try {
+      const v = JSON.parse(String(r.payload)) as { uri?: unknown; cv?: unknown };
+      const id = postIdOf(v.uri);
+      if (id && Number(v.cv) > 0) ids.add(id);
+    } catch { /* 깨진 행은 건너뛴다 */ }
+  }
+  return [...ids].sort();
+}
+
+export function durationParams(blogId: string, postId: string, unit: DurationUnit, w: Window): Record<string, string> {
   // 화면이 보내는 순서와 값
   return {
-    channelId: blogId, contentId: 'http://blog.naver.com/' + blogId + '/' + w.postId, endDate: w.to,
-    interval: 'day', service: 'naver_blog', startDate: w.from, statType: 'visit',
+    channelId: blogId, contentId: 'http://blog.naver.com/' + blogId + '/' + postId, endDate: w.to,
+    interval: unit, service: 'naver_blog', startDate: w.from, statType: 'visit',
   };
 }
 
-export function parseDurations(json: string, w: DurationWindow): DurationDay[] {
+export function parseDurations(json: string): DurationDay[] {
   let r: unknown;
   try { r = JSON.parse(json); } catch { throw new DurationParseError('사용시간 응답 JSON 파싱 실패'); }
   const data = (r as { data?: unknown })?.data;
@@ -78,58 +77,74 @@ export function parseDurations(json: string, w: DurationWindow): DurationDay[] {
   const out: DurationDay[] = [];
   for (const d of data) {
     const date = String((d as { date?: unknown })?.date ?? '');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < w.from || date > w.to) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
     const num = (k: string) => { const n = Number((d as Record<string, unknown>)[k]); return Number.isFinite(n) && n > 0 ? n : 0; };
     out.push({ date, cv: Math.round(num('cv')), averageDuration: num('averageDuration'), likeCount: Math.round(num('likeCount')) });
   }
   return out;
 }
 
-/** 창 하나의 결과를 저장한다: 그 글의 그 구간 행을 지우고 다시 넣는다(멱등). 조회 0인 날도 받은 날로 남긴다. */
-export function durationStmts(w: DurationWindow, days: DurationDay[], now: string): Stmt[] {
-  const stmts: Stmt[] = [{
-    sql: 'DELETE FROM metric_row WHERE metric = ? AND row_key = ? AND stat_date BETWEEN ? AND ?',
-    bind: [POST_DURATION, w.postId, w.from, w.to],
-  }];
-  for (const d of days) {
-    stmts.push({
-      sql: 'INSERT INTO metric_row (metric, stat_date, row_key, payload, collected_at) VALUES (?, ?, ?, ?, ?)',
-      bind: [POST_DURATION, d.date, w.postId, JSON.stringify({ cv: d.cv, averageDuration: d.averageDuration, likeCount: d.likeCount }), now],
-    });
-  }
-  return stmts;
+export interface DurationPeriod { date: string; seconds: number; views: number }
+export interface DurationPost { postId: string; seconds: number; views: number; likes: number; periods: number }
+export interface LiveDurations {
+  unit: DurationUnit;
+  periods: DurationPeriod[];
+  posts: DurationPost[];
+  requested: number;
+  failures: number;
+  /** 크리에이터 어드바이저가 거절해 멈췄으면 이유 */
+  stopped: string | null;
 }
 
-export interface DurationResult { windows: number; saved: number; failures: number; stopped: string | null }
-
-/**
- * 계획한 창을 받는다(동시 수는 StatClient가 정한다). 한 창이 실패해도 나머지는 받는다.
- * 크리에이터 어드바이저가 로그인을 거절하면 남은 창은 건너뛰고 stopped에 이유를 남긴다(다음 회차에 다시).
- */
-export async function fetchDurations(http: StatGetter, sql: Sql, blogId: string, windows: DurationWindow[],
-  log: JobLog = () => {}, poolLimit = 6): Promise<DurationResult> {
-  const result: DurationResult = { windows: windows.length, saved: 0, failures: 0, stopped: null };
+/** 게시글마다 고른 단위로 바로 받아 기간별·게시글별로 더한다. 한 요청이 실패해도 나머지는 받는다. */
+export async function fetchLiveDurations(http: StatGetter, blogId: string, postIds: string[], unit: DurationUnit,
+  from: string, to: string, log: JobLog = () => {}, poolLimit = 6): Promise<LiveDurations> {
+  const windows = windowsFor(unit, from, to);
+  const jobs = postIds.flatMap((postId) => windows.map((w) => ({ postId, w })));
+  const byPeriod = new Map<string, DurationPeriod>();
+  const byPost = new Map<string, DurationPost>();
+  const result: LiveDurations = { unit, periods: [], posts: [], requested: jobs.length, failures: 0, stopped: null };
   let next = 0;
   const worker = async () => {
-    while (next < windows.length && result.stopped === null) {
-      const w = windows[next++]!;
-      const label = '사용시간 ' + w.postId + ' ' + w.from + '~' + w.to;
+    while (next < jobs.length && result.stopped === null) {
+      const { postId, w } = jobs[next++]!;
+      const label = '사용시간 ' + postId + ' ' + w.from + '~' + w.to;
       try {
-        const days = parseDurations(await http.get(CREATOR_SUMMARY_PATH, durationParams(blogId, w), label), w);
-        await sql.tx(durationStmts(w, days, new Date().toISOString()));
-        result.saved += days.length;
+        const days = parseDurations(await http.get(CREATOR_SUMMARY_PATH, durationParams(blogId, postId, unit, w), label));
+        for (const d of days) {
+          if (d.date < w.from || d.date > w.to) continue;
+          const seconds = d.cv * d.averageDuration;
+          const p = byPeriod.get(d.date) ?? { date: d.date, seconds: 0, views: 0 };
+          p.seconds += seconds;
+          p.views += d.cv;
+          byPeriod.set(d.date, p);
+          const q = byPost.get(postId) ?? { postId, seconds: 0, views: 0, likes: 0, periods: 0 };
+          q.seconds += seconds;
+          q.views += d.cv;
+          q.likes += d.likeCount;
+          if (d.cv > 0) q.periods++;
+          byPost.set(postId, q);
+        }
       } catch (e) {
         if (e instanceof SessionExpiredError || e instanceof ClientBlockedError) {
-          result.stopped ??= '크리에이터 어드바이저가 요청을 거절했습니다(' + e.message + '). 크롬에서 크리에이터 어드바이저(creator-advisor.naver.com)를 한 번 열어 로그인·약관을 확인해 주세요.';
+          result.stopped ??= '크리에이터 어드바이저가 요청을 거절했어요. 크롬에서 크리에이터 어드바이저(creator-advisor.naver.com)를 한 번 열어 로그인을 확인해 주세요.';
           return;
         }
         if (!(e instanceof HttpStatusError) && !(e instanceof DurationParseError)) throw e;
         result.failures++;
-        log('warn', '[경고] ' + label + ' 수집 실패, 다음 회차에 다시 받습니다: ' + e.message);
+        log('warn', '[경고] ' + label + ' 실패: ' + e.message);
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(poolLimit, windows.length)) }, worker));
-  if (result.stopped) log('warn', '[사용시간] ' + result.stopped);
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(poolLimit, jobs.length)) }, worker));
+  // 기간은 빈 구간도 0으로 채워 차트가 끊기지 않게 한다(일: 날마다, 주: 월요일마다, 월: 1일마다)
+  const step = (d: string) => (unit === 'day' ? addDays(d, 1) : unit === 'week' ? addDays(d, 7) : nextMonth(d));
+  for (let d = alignedFrom(unit, from); d <= to; d = step(d)) result.periods.push(byPeriod.get(d) ?? { date: d, seconds: 0, views: 0 });
+  result.posts = [...byPost.values()].filter((p) => p.views > 0).sort((a, b) => b.seconds - a.seconds || (a.postId < b.postId ? -1 : 1));
   return result;
+}
+
+function nextMonth(d: string): string {
+  const [y, m] = d.split('-').map(Number) as [number, number];
+  return new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
 }

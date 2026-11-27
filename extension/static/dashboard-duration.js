@@ -1,13 +1,18 @@
-// 사용시간 합계 화면: 게시글별 사용시간(크리에이터 어드바이저, POST_DURATION)을
+// 사용시간 합계 화면: 크리에이터 어드바이저 content-summary를 이 탭을 볼 때 바로 불러(저장하지 않음)
 // 기간별(일·주·월)과 게시글별로 더해 보여 준다. 사용시간 = 조회수 × 평균 사용시간(초)의 합.
-// 사이드바 기간이 바뀌면(blog:range) /api/dashboard/post-duration을 다시 부른다.
+// 다른 화면을 보는 동안에는 부르지 않는다: 사이드바 기간이 바뀌면 기억만 해 두고, 이 탭이 보일 때 받는다.
+// 데이터: /api/dashboard/post-duration?from&to&unit(=day|week|month)[&refresh=1] (오프스크린이 바로 부름, 10분 동안 같은 값 재사용)
 // 게시글 제목은 외부 값이므로 textContent로만 넣는다.
 (function () {
   const $ = (id) => document.getElementById(id);
   const nf = new Intl.NumberFormat('ko-KR');
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const section = document.querySelector('[data-view="duration"]');
   let data = null;
-  let unit = 'daily';
+  let unit = 'day';
+  let range = null;
+  /** 마지막으로 받은 (기간, 단위). 바뀌었으면 탭이 보일 때 다시 받는다 */
+  let loadedKey = null;
   let chart = null;
   let seq = 0;
 
@@ -22,6 +27,12 @@
     return m + '분' + (r ? ' ' + r + '초' : '');
   }
   const md = (d) => d.slice(5).replace('-', '/');
+  function addDays(d, n) {
+    const t = new Date(d + 'T00:00:00Z');
+    t.setUTCDate(t.getUTCDate() + n);
+    return t.toISOString().slice(0, 10);
+  }
+  const hm = (iso) => new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 
   function el(tag, cls, text) {
     const e = document.createElement(tag);
@@ -30,8 +41,8 @@
     return e;
   }
 
-  async function get(range) {
-    const res = await fetch('/api/dashboard/post-duration?' + new URLSearchParams(range || {}).toString());
+  async function get(params) {
+    const res = await fetch('/api/dashboard/post-duration?' + new URLSearchParams(params).toString());
     if (!res.ok) {
       let detail = '';
       try { detail = (await res.json()).message || ''; } catch (e) { /* 본문 없음 */ }
@@ -40,22 +51,23 @@
     return res.json();
   }
 
-  function state(title, desc) {
+  function state(title, desc, retry) {
     $('du-body').hidden = true;
     $('du-state').hidden = false;
     $('du-state-title').textContent = title;
     $('du-state-desc').textContent = desc;
+    $('du-retry').hidden = !retry;
   }
 
   function periodLabel(p) {
-    if (unit === 'daily') return md(p.date);
-    if (unit === 'weekly') return md(p.from) + '~' + md(p.to) + (p.partial ? ' (일부)' : '');
-    return p.key.replace('-', '년 ') + '월' + (p.partial ? ' (일부)' : '');
+    if (data.unit === 'day') return md(p.date);
+    if (data.unit === 'week') return md(p.date) + '~' + md(addDays(p.date, 6));
+    return p.date.slice(0, 4) + '년 ' + Number(p.date.slice(5, 7)) + '월';
   }
 
   function renderPeriods() {
-    document.querySelectorAll('#du-unit button').forEach((b) => b.classList.toggle('active', b.dataset.u === unit));
-    const items = data[unit];
+    document.querySelectorAll('#du-unit button').forEach((b) => b.classList.toggle('active', b.dataset.u === data.unit));
+    const items = data.periods;
     if (chart) chart.destroy();
     chart = BlogCharts.draw($('du-chart'), {
       kind: 'column',
@@ -78,33 +90,25 @@
   function renderPosts() {
     const body = $('du-posts');
     body.replaceChildren();
-    if (data.posts.length === 0) {
-      const tr = el('tr');
-      const td = el('td', 'du-sub', '이 기간에 사용시간을 받은 게시글이 없어요.');
-      td.colSpan = 4;
-      tr.appendChild(td);
-      body.appendChild(tr);
-      return;
-    }
+    const unitName = { day: '일', week: '주', month: '달' }[data.unit];
     for (const p of data.posts) {
       const tr = el('tr');
       const name = el('td');
       name.appendChild(el('span', 'du-post', p.title || '게시글 ' + p.postId));
-      name.appendChild(el('span', 'du-sub', '조회된 날 ' + p.days + '일' + (p.likes ? ' · 공감 ' + nf.format(p.likes) : '')));
+      name.appendChild(el('span', 'du-sub', '조회된 ' + unitName + ' ' + p.periods + '개' + (p.likes ? ' · 공감 ' + nf.format(p.likes) : '')));
       tr.append(name, el('td', null, nf.format(p.views)), el('td', null, dur(p.seconds)), el('td', null, dur(p.average)));
       body.appendChild(tr);
     }
   }
 
   function render() {
-    const c = data.coverage;
     $('du-range').textContent = data.from + ' ~ ' + data.to;
-    if (c.need === 0 && data.total.views === 0) {
-      state('이 기간에 조회된 게시글이 없어요', '기간을 바꿔 보세요. 게시글 순위가 수집된 날만 계산해요.');
+    if (data.postCount === 0) {
+      state('이 기간에 조회된 게시글이 없어요', '기간을 바꿔 보세요. 게시글 조회수 순위가 수집된 날의 글을 봐요.', false);
       return;
     }
-    if (c.have === 0 && data.total.views === 0) {
-      state('아직 사용시간을 받지 않았어요', '팝업에서 "지금 수집"을 누르면 게시글별 사용시간을 받아요. 다 받은 뒤 이 화면을 새로고침해 주세요.');
+    if (data.stopped && data.posts.length === 0) {
+      state('사용시간을 받지 못했어요', data.stopped, true);
       return;
     }
     $('du-state').hidden = true;
@@ -112,31 +116,53 @@
     $('du-total').textContent = dur(data.total.seconds);
     $('du-avg').textContent = data.total.views ? dur(data.total.seconds / data.total.views) : '-';
     $('du-views').textContent = nf.format(data.total.views);
-    $('du-cover').textContent = c.need ? Math.floor((c.have * 100) / c.need) + '%' : '-';
-    $('du-note').textContent = '사용시간은 조회수 × 평균 사용시간(크리에이터 어드바이저)을 게시글마다 더한 값이에요. 주·월은 일 값을 더해서 구해요.'
-      + (c.need > c.have ? ' 아직 받지 못한 (게시글, 날짜) ' + nf.format(c.need - c.have) + '개가 있어 실제보다 적게 보일 수 있어요. 다음 수집에서 채워요.' : '');
+    $('du-count').textContent = nf.format(data.postCount) + '개';
+    const warn = data.stopped ? ' ' + data.stopped
+      : data.failures > 0 ? ' 게시글 ' + nf.format(data.failures) + '건을 받지 못해 실제보다 적게 보일 수 있어요.' : '';
+    $('du-note').textContent = hm(data.fetchedAt) + ' 기준 · 크리에이터 어드바이저에서 바로 받은 값이에요(저장하지 않아요).'
+      + (data.unit === 'day' ? '' : ' 주·월은 기간 첫 주·첫 달 전체를 포함해요.') + warn;
     renderPeriods();
     renderPosts();
   }
 
-  async function load(range) {
+  async function load(refresh) {
+    if (!range || !range.from || !range.to) return;
     const my = ++seq;
+    const key = unit + '|' + range.from + '|' + range.to;
+    loadedKey = key;
+    $('du-refresh').disabled = true;
+    if (!data || refresh) state('사용시간을 받는 중이에요', '게시글마다 크리에이터 어드바이저에 물어봐서 몇 초 걸려요.', false);
     try {
-      const d = await get(range);
+      const d = await get(Object.assign({ from: range.from, to: range.to, unit }, refresh ? { refresh: '1' } : {}));
       if (my !== seq) return;
       data = d;
+      unit = d.unit || unit; // 공유 화면은 받은 단위 그대로 보여 준다
+      loadedKey = unit + '|' + range.from + '|' + range.to;
       render();
     } catch (e) {
       if (my !== seq) return;
       data = null;
-      state('사용시간을 불러오지 못했어요', '잠시 뒤 다시 열어 주세요. (' + e.message + ')');
+      loadedKey = null;
+      state('사용시간을 받지 못했어요', e.message, true);
+    } finally {
+      if (my === seq) $('du-refresh').disabled = false;
     }
   }
 
+  /** 이 탭이 보이고, 받은 값과 기간·단위가 다를 때만 받는다(다른 화면에서는 요청하지 않음). */
+  function maybeLoad() {
+    if (section.hidden || !range) return;
+    if (loadedKey !== unit + '|' + range.from + '|' + range.to) load(false);
+  }
+
   document.querySelectorAll('#du-unit button').forEach((b) => b.addEventListener('click', () => {
-    if (!data || b.dataset.u === unit) return;
+    if (b.dataset.u === unit && data) return;
     unit = b.dataset.u;
-    renderPeriods();
+    document.querySelectorAll('#du-unit button').forEach((x) => x.classList.toggle('active', x === b));
+    load(false);
   }));
-  window.addEventListener('blog:range', (e) => load(e.detail));
+  $('du-refresh').addEventListener('click', () => load(true));
+  $('du-retry').addEventListener('click', () => load(true));
+  window.addEventListener('blog:range', (e) => { range = e.detail; maybeLoad(); });
+  window.addEventListener('blog:view', () => maybeLoad());
 })();

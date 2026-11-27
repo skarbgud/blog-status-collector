@@ -7,7 +7,6 @@ import { describeUrl } from './referer-url.js';
 import { getSetting, type Row, type Sql } from './sql.js';
 import type { StoredStatus } from './status.js';
 import { readToday, type TodaySnapshot } from './today.js';
-import { POST_DURATION, postIdOf } from './post-duration.js';
 
 export const DEFAULT_DAYS = 30;
 export const MAX_DAYS = 366;
@@ -55,7 +54,6 @@ export class DashboardQuery {
         case 'session': return ok(session(status));
         case 'referrer-details': return ok(await this.referrerDetails(await this.period(params)));
         case 'place-queries': return ok(await this.placeQueries(await this.period(params)));
-        case 'post-duration': return ok(await this.postDuration(await this.period(params)));
         case 'today-details': return ok(await this.todayDetails());
         case 'today-places': return ok(await this.todayPlaces());
         default: return { status: 404, body: { status: 404, message: '없는 API: ' + name } };
@@ -157,7 +155,8 @@ export class DashboardQuery {
   // ---- 유입분석: 유입처별 상세(URL·검색어) 전체 펼치기 ----
 
   /** 게시글 번호 → 제목(ARTICLE_INFO 최신, 없으면 순위의 제목). */
-  private async postTitles(): Promise<Map<string, string>> {
+  /** 게시글 번호 → 제목(순위·게시글 정보에서). 사용시간 합계 화면도 쓴다. */
+  async postTitles(): Promise<Map<string, string>> {
     const titles = new Map<string, string>();
     const rank = await this.sql.query("SELECT payload FROM metric_row WHERE metric = 'RANK_POST' ORDER BY stat_date, rowid");
     for (const r of rank) {
@@ -288,83 +287,6 @@ export class DashboardQuery {
       await getSetting(this.sql, 'blog_id'));
   }
 
-  // ---- 사용시간 합계 (core/post-duration.ts가 받은 POST_DURATION) ----
-
-  /**
-   * 사용시간 = 조회수 × 평균 사용시간(초)의 합. 기간 안을 일·주(월요일 시작)·월로 묶은 합계와 게시글별 합계.
-   * 주·월이 기간 경계에 걸리면 기간 안의 날만 더하고 partial=true로 표시한다.
-   * coverage: 순위에 조회 > 0으로 나온 (글, 날짜) 중 사용시간을 받은 수(받는 중이면 합계가 덜 나온다).
-   */
-  async postDuration(period: { from: string; to: string }) {
-    const { from, to } = period;
-    const rows = await this.sql.query(
-      'SELECT stat_date, row_key, payload FROM metric_row WHERE metric = ? AND stat_date BETWEEN ? AND ?', [POST_DURATION, from, to]);
-    const have = new Set<string>();
-    const byDay = new Map<string, { seconds: number; views: number }>();
-    const posts = new Map<string, { seconds: number; views: number; likes: number; days: number }>();
-    for (const r of rows) {
-      let v: { cv?: number; averageDuration?: number; likeCount?: number };
-      try { v = JSON.parse(String(r.payload)); } catch { continue; }
-      const date = String(r.stat_date);
-      const id = String(r.row_key);
-      have.add(id + '|' + date);
-      const views = Number(v.cv) || 0;
-      const seconds = views * (Number(v.averageDuration) || 0);
-      const d = byDay.get(date) ?? { seconds: 0, views: 0 };
-      d.seconds += seconds;
-      d.views += views;
-      byDay.set(date, d);
-      const p = posts.get(id) ?? { seconds: 0, views: 0, likes: 0, days: 0 };
-      p.seconds += seconds;
-      p.views += views;
-      p.likes += Number(v.likeCount) || 0;
-      if (views > 0) p.days++;
-      posts.set(id, p);
-    }
-    const rank = await this.sql.query(
-      "SELECT stat_date, payload FROM metric_row WHERE metric = 'RANK_POST' AND row_key <> '_empty' AND stat_date BETWEEN ? AND ?", [from, to]);
-    let need = 0;
-    let covered = 0;
-    for (const r of rank) {
-      let v: { uri?: unknown; cv?: unknown };
-      try { v = JSON.parse(String(r.payload)); } catch { continue; }
-      const id = postIdOf(v.uri);
-      if (!id || !(Number(v.cv) > 0)) continue;
-      need++;
-      if (have.has(id + '|' + String(r.stat_date))) covered++;
-    }
-
-    const daily: { date: string; seconds: number; views: number }[] = [];
-    for (let d = from; d <= to; d = addDays(d, 1)) daily.push({ date: d, ...(byDay.get(d) ?? { seconds: 0, views: 0 }) });
-    const group = (keyOf: (d: string) => string, startOf: (d: string) => string, endOf: (d: string) => string) => {
-      const out = new Map<string, { key: string; from: string; to: string; seconds: number; views: number; partial: boolean }>();
-      for (const d of daily) {
-        const k = keyOf(d.date);
-        const g = out.get(k) ?? { key: k, from: d.date, to: d.date, seconds: 0, views: 0, partial: false };
-        g.to = d.date;
-        g.seconds += d.seconds;
-        g.views += d.views;
-        out.set(k, g);
-      }
-      for (const g of out.values()) g.partial = g.from !== startOf(g.from) || g.to !== endOf(g.to);
-      return [...out.values()];
-    };
-    const weekly = group(mondayOf, mondayOf, (d) => addDays(mondayOf(d), 6));
-    const monthly = group((d) => d.slice(0, 7), (d) => d.slice(0, 8) + '01', monthEnd);
-
-    const titles = posts.size > 0 ? await this.postTitles() : new Map<string, string>();
-    const total = daily.reduce((a, d) => ({ seconds: a.seconds + d.seconds, views: a.views + d.views }), { seconds: 0, views: 0 });
-    return {
-      from, to, total,
-      daily, weekly, monthly,
-      posts: [...posts.entries()]
-        .filter(([, p]) => p.views > 0)
-        .sort(([ia, a], [ib, b]) => b.seconds - a.seconds || cmp(ia, ib))
-        .map(([id, p]) => ({ postId: id, title: titles.get(id) ?? null, ...p, average: p.views ? p.seconds / p.views : 0 })),
-      coverage: { need, have: covered },
-    };
-  }
-
   // ---- 검색어 변화 (KeywordTrendController) ----
 
   async trends(to: string | null, lookback: number, limit: number): Promise<TrendReport> {
@@ -462,16 +384,4 @@ function snapRows(snap: TodaySnapshot): { ref: Row[]; url: Row[]; query: Row[] }
     url: snap.urls.map((u) => ({ stat_date: u.date, referrer_name: u.referrer, text: u.url, visits: u.visits })),
     query: snap.queries.map((q) => ({ stat_date: q.date, referrer_name: q.referrer, text: q.query, visits: q.visits })),
   };
-}
-
-/** 그 주의 월요일(YYYY-MM-DD). */
-function mondayOf(d: string): string {
-  const t = new Date(d + 'T00:00:00Z');
-  return addDays(d, -((t.getUTCDay() + 6) % 7));
-}
-
-/** 그 달의 마지막 날. */
-function monthEnd(d: string): string {
-  const [y, m] = d.split('-').map(Number) as [number, number];
-  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
 }

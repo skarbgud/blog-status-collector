@@ -33,6 +33,14 @@ export async function readToday(sql: Sql): Promise<TodaySnapshot | null> {
   }
 }
 
+/** 오늘 남은 요청 수(하루 상한이 없으면 무한대). 수집 회차 밖에서 부르는 요청(오늘 유입, 사용시간)도 이 상한을 지킨다. */
+export async function remainingToday(sql: Sql, today: string): Promise<number> {
+  const cap = Number((await getSetting(sql, S.dailyCap)) ?? DEFAULT_DAILY_CAP);
+  if (!hasCap(cap)) return Number.POSITIVE_INFINITY;
+  const used = Number((await sql.query('SELECT COALESCE(SUM(requests), 0) AS n FROM run_log WHERE kst_date = ?', [today]))[0]?.n ?? 0);
+  return cap - used;
+}
+
 export interface TodayDeps {
   sql: Sql;
   makeClient(maxRequests: number): StatClient;
@@ -49,10 +57,8 @@ export async function refreshToday(deps: TodayDeps): Promise<TodaySnapshot> {
   const prev = await readToday(sql);
   if (prev && prev.date === today && now.getTime() - Date.parse(prev.fetchedAt) < TODAY_MIN_INTERVAL_MS) return prev;
 
-  const cap = Number((await getSetting(sql, S.dailyCap)) ?? DEFAULT_DAILY_CAP);
-  const used = Number((await sql.query('SELECT COALESCE(SUM(requests), 0) AS n FROM run_log WHERE kst_date = ?', [today]))[0]?.n ?? 0);
-  const remaining = hasCap(cap) ? cap - used : Number.POSITIVE_INFINITY;
-  if (remaining <= 0) throw new BudgetExceededError('오늘 요청 상한(' + cap + '회)을 다 써서 오늘 유입을 받을 수 없어요.');
+  const remaining = await remainingToday(sql, today);
+  if (remaining <= 0) throw new BudgetExceededError('오늘 요청 상한을 다 써서 오늘 유입을 받을 수 없어요.');
 
   const client = deps.makeClient(remaining);
   const startedAt = now.toISOString();

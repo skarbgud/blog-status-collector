@@ -12,7 +12,9 @@ import { BudgetExceededError, SessionExpiredError, StatClient, kstDate } from '.
 import { migrate } from './core/schema.js';
 import { getSetting, setSetting } from './core/sql.js';
 import { readStatus, type StoredStatus } from './core/status.js';
-import { refreshToday } from './core/today.js';
+import { refreshToday, remainingToday } from './core/today.js';
+import { DURATION_UNITS, fetchLiveDurations, postsInRange, type DurationUnit } from './core/post-duration.js';
+import { isDate } from './core/dates.js';
 
 const db = new Db();
 let ready = migrate(db);
@@ -151,9 +153,63 @@ async function todayRefresh(): Promise<{ status: number; body: unknown }> {
   return query.handle('today-details', {}, await stored());
 }
 
+/**
+ * 사용시간 합계: 크리에이터 어드바이저를 지금 바로 불러 더한다(저장하지 않음). 대시보드가 사용시간 탭을 볼 때만
+ * fetch('/api/dashboard/post-duration?from&to&unit')로 부른다. 같은 기간·단위는 10분 동안 메모리에 둔 값을 쓴다(refresh=1이면 새로).
+ * 요청 수는 run_log(trigger=duration, outcome 없음)에 남겨 하루 상한에 센다.
+ */
+const DURATION_CACHE_MS = 10 * 60 * 1000;
+const durationCache = new Map<string, { at: number; body: unknown }>();
+const durationRuns = new Map<string, Promise<{ status: number; body: unknown }>>();
+async function postDuration(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
+  const unit = (DURATION_UNITS as string[]).includes(params.unit ?? '') ? params.unit as DurationUnit : 'day';
+  const from = params.from ?? '';
+  const to = params.to ?? '';
+  if (!isDate(from) || !isDate(to) || from > to) return { status: 400, body: { message: '기간이 잘못됐어요.' } };
+  const key = unit + '|' + from + '|' + to;
+  const hit = durationCache.get(key);
+  if (hit && params.refresh !== '1' && Date.now() - hit.at < DURATION_CACHE_MS) return { status: 200, body: hit.body };
+  let run = durationRuns.get(key);
+  if (!run) {
+    run = (async () => {
+      await ready;
+      const blogId = await getSetting(db, S.blogId);
+      if (!blogId) return { status: 409, body: { message: '먼저 팝업에서 "지금 수집"을 한 번 해 주세요. 블로그를 확인해야 사용시간을 받을 수 있어요.' } };
+      const ids = await postsInRange(db, from, to);
+      const today = kstDate(0);
+      const remaining = await remainingToday(db, today);
+      if (remaining <= 0) return { status: 429, body: { message: '오늘 요청 상한을 다 써서 사용시간을 받을 수 없어요. 내일 다시 열어 주세요.' } };
+      const client = new StatClient({ maxRequests: remaining, log });
+      const startedAt = new Date().toISOString();
+      try {
+        const live = await fetchLiveDurations(client, blogId, ids, unit, from, to, log);
+        const titles = live.posts.length > 0 ? await query.postTitles() : new Map<string, string>();
+        const total = live.periods.reduce((a, p) => ({ seconds: a.seconds + p.seconds, views: a.views + p.views }), { seconds: 0, views: 0 });
+        const body = {
+          unit, from, to, fetchedAt: new Date().toISOString(), total, periods: live.periods,
+          posts: live.posts.map((p) => ({ ...p, title: titles.get(p.postId) ?? null, average: p.views ? p.seconds / p.views : 0 })),
+          postCount: ids.length, requested: live.requested, failures: live.failures, stopped: live.stopped,
+        };
+        if (!live.stopped && live.failures === 0) durationCache.set(key, { at: Date.now(), body });
+        return { status: 200, body };
+      } catch (e) {
+        if (e instanceof BudgetExceededError) return { status: 429, body: { message: '오늘 요청 상한에 닿아 사용시간을 다 받지 못했어요.' } };
+        return { status: 502, body: { message: '사용시간을 받지 못했어요. 잠시 뒤 다시 열어 주세요. (' + (e instanceof Error ? e.message : String(e)) + ')' } };
+      } finally {
+        await db.query('INSERT INTO run_log (kst_date, trigger, started_at, finished_at, requests) VALUES (?, ?, ?, ?, ?)',
+          [today, 'duration', startedAt, new Date().toISOString(), client.requestsUsed]);
+      }
+    })().finally(() => durationRuns.delete(key));
+    durationRuns.set(key, run);
+  }
+  return run;
+}
+
 const handlers: Record<string, Handler> = {
   status: () => status(),
-  api: async (m) => (m.name === 'today-refresh' ? todayRefresh() : query.handle(m.name ?? '', m.params ?? {}, await stored())),
+  api: async (m) => (m.name === 'today-refresh' ? todayRefresh()
+    : m.name === 'post-duration' ? postDuration(m.params ?? {})
+    : query.handle(m.name ?? '', m.params ?? {}, await stored())),
   'export-db': () => exclusive(async () => ({ base64: toBase64(await db.exportFile()) })),
   'import-db': (m) => exclusive(async () => {
     const bytes = fromBase64(m.base64 ?? '');

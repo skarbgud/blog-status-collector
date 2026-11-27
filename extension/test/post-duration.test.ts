@@ -1,12 +1,11 @@
-// 게시글별 사용시간(크리에이터 어드바이저): 받을 구간 계획, 응답 파싱, 받기(거절·실패), 조회 합계(일·주·월·게시글).
+// 게시글별 사용시간(크리에이터 어드바이저, 탭을 열 때 바로 부름): 요청 주소, 구간 나누기, 글 목록, 파싱, 합계, 거절·실패.
 // 블로그 ID·게시글 번호는 가짜 값이다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { memoryDb, type NodeSql } from './node-sql.js';
-import { DashboardQuery } from '../src/core/dashboard-query.js';
 import { CREATOR_SUMMARY_PATH, HttpStatusError, SessionExpiredError, buildQuery, statUrl } from '../src/core/naver.js';
 import {
-  POST_DURATION, durationParams, fetchDurations, parseDurations, planDurations, postIdOf, type DurationWindow,
+  alignedFrom, durationParams, fetchLiveDurations, parseDurations, postIdOf, postsInRange, windowsFor,
 } from '../src/core/post-duration.js';
 import type { StatGetter } from '../src/core/metric-job.js';
 
@@ -17,18 +16,14 @@ const uri = (id: string) => 'http://blog.naver.com/' + BLOG + '/' + id;
 
 async function rank(sql: NodeSql, date: string, id: string, cv: number) {
   await sql.query('INSERT INTO metric_row (metric, stat_date, row_key, payload, collected_at) VALUES (?, ?, ?, ?, ?)',
-    ['RANK_POST', date, 'r' + id.slice(-3), JSON.stringify({ uri: uri(id), cv, title: '제목 ' + id.slice(-1) }), 'x']);
-}
-async function duration(sql: NodeSql, date: string, id: string, cv: number, avg: number) {
-  await sql.query('INSERT INTO metric_row (metric, stat_date, row_key, payload, collected_at) VALUES (?, ?, ?, ?, ?)',
-    [POST_DURATION, date, id, JSON.stringify({ cv, averageDuration: avg, likeCount: 0 }), 'x']);
+    ['RANK_POST', date, 'r' + id.slice(-3), JSON.stringify({ uri: uri(id), cv, title: '제목' }), 'x']);
 }
 
 test('사용시간 요청: 크리에이터 어드바이저 주소로, 화면과 같은 파라미터 순서', () => {
-  const url = statUrl(CREATOR_SUMMARY_PATH, durationParams(BLOG, { postId: A, from: '2026-11-12', to: '2026-11-26' }));
+  const url = statUrl(CREATOR_SUMMARY_PATH, durationParams(BLOG, A, 'week', { from: '2026-08-24', to: '2026-11-22' }));
   assert.equal(url.origin, 'https://creator-advisor.naver.com');
   assert.equal(url.search, '?' + buildQuery({
-    channelId: BLOG, contentId: uri(A), endDate: '2026-11-26', interval: 'day', service: 'naver_blog', startDate: '2026-11-12', statType: 'visit',
+    channelId: BLOG, contentId: uri(A), endDate: '2026-11-22', interval: 'week', service: 'naver_blog', startDate: '2026-08-24', statType: 'visit',
   }));
   assert.equal(statUrl('/api/blog/user-info').origin, 'https://blog.stat.naver.com', '통계 경로는 그대로');
   assert.throws(() => statUrl('/api/v6/other'), /허용 목록/);
@@ -36,90 +31,67 @@ test('사용시간 요청: 크리에이터 어드바이저 주소로, 화면과 
   assert.equal(postIdOf('http://blog.naver.com/' + BLOG), null);
 });
 
-test('사용시간 계획: 순위에 조회 > 0으로 나온 날 중 없는 날만, 글마다 15일 창으로', async () => {
-  const sql = await memoryDb();
-  for (const d of ['2026-11-01', '2026-11-02', '2026-11-10', '2026-11-20']) await rank(sql, d, A, 3);
-  await rank(sql, '2026-11-05', B, 0); // 조회 0은 받지 않음
-  await rank(sql, '2026-11-06', B, 2);
-  await duration(sql, '2026-11-02', A, 1, 10); // 이미 받음
-  const w = await planDurations(sql, '2026-11-01', '2026-11-30');
-  assert.deepEqual(w, [
-    { postId: A, from: '2026-11-01', to: '2026-11-10' }, // 11/01·11/10은 15일 안
-    { postId: A, from: '2026-11-20', to: '2026-11-20' },
-    { postId: B, from: '2026-11-06', to: '2026-11-06' },
-  ]);
-  // 다시 받기: 그 날짜부터는 있어도 받는다
-  await duration(sql, '2026-11-20', A, 3, 10);
-  const again = await planDurations(sql, '2026-11-01', '2026-11-30', '2026-11-20');
-  assert.ok(again.some((x) => x.postId === A && x.from === '2026-11-20'));
+test('구간: 일은 15일씩, 주는 그 주 월요일부터, 월은 1일부터 한 번', () => {
+  assert.deepEqual(windowsFor('day', '2026-11-01', '2026-11-20'),
+    [{ from: '2026-11-01', to: '2026-11-15' }, { from: '2026-11-16', to: '2026-11-20' }]);
+  assert.deepEqual(windowsFor('week', '2026-11-27', '2026-12-10'), [{ from: '2026-11-23', to: '2026-12-10' }]);
+  assert.deepEqual(windowsFor('month', '2026-09-15', '2026-11-26'), [{ from: '2026-09-01', to: '2026-11-26' }]);
+  assert.equal(alignedFrom('day', '2026-11-27'), '2026-11-27');
 });
 
-test('사용시간 파싱: 창 밖 날짜·이상한 값은 버리고, 음수·없음은 0', () => {
-  const w: DurationWindow = { postId: A, from: '2026-11-14', to: '2026-11-15' };
-  const body = JSON.stringify({ data: [
-    { date: '2026-11-13', cv: 9, averageDuration: 9 },
+test('글 목록: 고른 기간 순위에 조회 > 0으로 나온 글만(요청 없음)', async () => {
+  const sql = await memoryDb();
+  await rank(sql, '2026-11-01', A, 3);
+  await rank(sql, '2026-11-02', B, 0);
+  await rank(sql, '2026-10-01', B, 5); // 기간 밖
+  assert.deepEqual(await postsInRange(sql, '2026-11-01', '2026-11-30'), [A]);
+});
+
+test('파싱: 날짜가 이상한 줄은 버리고, 없거나 음수인 값은 0', () => {
+  assert.deepEqual(parseDurations(JSON.stringify({ data: [
     { date: '2026-11-14', cv: 60, averageDuration: 162.95, likeCount: 58 },
     { date: '2026-11-15', cv: 4, averageDuration: null },
     { date: 'bad', cv: 1 },
-  ] });
-  assert.deepEqual(parseDurations(body, w), [
+  ] })), [
     { date: '2026-11-14', cv: 60, averageDuration: 162.95, likeCount: 58 },
     { date: '2026-11-15', cv: 4, averageDuration: 0, likeCount: 0 },
   ]);
-  assert.throws(() => parseDurations('{"data":{}}', w), /data 배열/);
+  assert.throws(() => parseDurations('{"data":{}}'), /data 배열/);
 });
 
-test('사용시간 받기: 저장(멱등), 한 구간 실패는 건너뛰고, 로그인 거절이면 이 단계만 멈춘다', async () => {
-  const sql = await memoryDb();
-  const windows: DurationWindow[] = [
-    { postId: A, from: '2026-11-14', to: '2026-11-15' },
-    { postId: B, from: '2026-11-14', to: '2026-11-14' },
-  ];
-  const ok: StatGetter = {
+test('합계: 조회수 × 평균을 기간별·게시글별로 더하고, 빈 기간도 0으로 채운다', async () => {
+  const http: StatGetter = {
     async get(_path, params) {
-      if (params.contentId!.endsWith(B)) throw new HttpStatusError(500, 'x');
-      return JSON.stringify({ data: [{ date: '2026-11-14', cv: 2, averageDuration: 30 }, { date: '2026-11-15', cv: 0, averageDuration: 0 }] });
+      const rows = params.contentId!.endsWith(A)
+        ? [{ date: '2026-11-01', cv: 4490, averageDuration: 178 }, { date: '2026-10-01', cv: 1, averageDuration: 999 }]
+        : [{ date: '2026-11-01', cv: 4, averageDuration: 139, likeCount: 2 }, { date: '2026-12-01', cv: 9, averageDuration: 9 }];
+      return JSON.stringify({ data: rows });
     },
   };
-  const r = await fetchDurations(ok, sql, BLOG, windows, () => {}, 1);
-  assert.deepEqual([r.saved, r.failures, r.stopped], [2, 1, null]);
-  await fetchDurations(ok, sql, BLOG, windows, () => {}, 1);
-  assert.equal(Number((await sql.query('SELECT COUNT(*) AS n FROM metric_row WHERE metric = ?', [POST_DURATION]))[0]?.n), 2, '다시 받아도 행 수 같음');
+  const r = await fetchLiveDurations(http, BLOG, [A, B], 'month', '2026-11-10', '2026-12-05');
+  // 요청 구간(11/01~12/05) 밖인 10월은 버리고, 11월·12월을 채운다
+  assert.deepEqual(r.periods, [
+    { date: '2026-11-01', seconds: 4490 * 178 + 4 * 139, views: 4494 },
+    { date: '2026-12-01', seconds: 81, views: 9 },
+  ]);
+  assert.deepEqual(r.posts.map((p) => [p.postId, p.seconds, p.views, p.likes, p.periods]),
+    [[A, 4490 * 178, 4490, 0, 1], [B, 4 * 139 + 81, 13, 2, 2]]);
+  assert.deepEqual([r.requested, r.failures, r.stopped], [2, 0, null]);
+});
+
+test('실패: 한 글이 실패해도 나머지는 더하고, 로그인 거절이면 남은 요청을 멈춘다', async () => {
+  const one: StatGetter = {
+    async get(_path, params) {
+      if (params.contentId!.endsWith(B)) throw new HttpStatusError(500, 'x');
+      return JSON.stringify({ data: [{ date: '2026-11-01', cv: 2, averageDuration: 30 }] });
+    },
+  };
+  const r = await fetchLiveDurations(one, BLOG, [A, B], 'day', '2026-11-01', '2026-11-01', () => {}, 1);
+  assert.deepEqual([r.failures, r.stopped, r.posts.length, r.periods[0]!.seconds], [1, null, 1, 60]);
 
   let calls = 0;
   const refused: StatGetter = { async get() { calls++; throw new SessionExpiredError('HTTP 401'); } };
-  const s = await fetchDurations(refused, sql, BLOG, windows, () => {}, 1);
+  const s = await fetchLiveDurations(refused, BLOG, [A, B], 'day', '2026-11-01', '2026-11-01', () => {}, 1);
   assert.match(s.stopped ?? '', /크리에이터 어드바이저/);
-  assert.equal(calls, 1, '거절 뒤 남은 구간은 부르지 않음');
-});
-
-test('사용시간 합계: 조회수 × 평균을 일·주(월요일 시작)·월·게시글로 더하고, 받은 비율을 센다', async () => {
-  const sql = await memoryDb();
-  // 11/30(월) ~ 12/01(화): 같은 주, 달은 둘로 나뉜다
-  await rank(sql, '2026-11-30', A, 60);
-  await rank(sql, '2026-11-30', B, 4);
-  await rank(sql, '2026-12-01', A, 10);
-  await duration(sql, '2026-11-30', A, 60, 163);
-  await duration(sql, '2026-11-30', B, 4, 139);
-  // 12/01 A는 아직 안 받음
-  const r = await new DashboardQuery(sql, () => '2026-12-02').handle('post-duration', { from: '2026-11-30', to: '2026-12-01' }, null);
-  assert.equal(r.status, 200);
-  const b = r.body as {
-    total: { seconds: number; views: number };
-    daily: { date: string; seconds: number }[];
-    weekly: { key: string; from: string; to: string; seconds: number; partial: boolean }[];
-    monthly: { key: string; seconds: number; partial: boolean }[];
-    posts: { postId: string; title: string; seconds: number; views: number; average: number }[];
-    coverage: { need: number; have: number };
-  };
-  assert.equal(b.total.seconds, 60 * 163 + 4 * 139);
-  assert.equal(b.total.views, 64);
-  assert.deepEqual(b.daily.map((d) => [d.date, d.seconds]), [['2026-11-30', 60 * 163 + 4 * 139], ['2026-12-01', 0]]);
-  // 11/30은 월요일이라 두 날이 한 주(11/30~12/06, 기간 안은 이틀뿐이라 partial)
-  assert.deepEqual(b.weekly.map((w) => [w.key, w.from, w.to, w.partial, w.seconds]),
-    [['2026-11-30', '2026-11-30', '2026-12-01', true, 60 * 163 + 4 * 139]]);
-  assert.deepEqual(b.monthly.map((m) => [m.key, m.partial]), [['2026-11', true], ['2026-12', true]]);
-  assert.deepEqual(b.posts.map((p) => [p.postId, p.title, p.seconds, p.views]), [[A, '제목 1', 60 * 163, 60], [B, '제목 2', 4 * 139, 4]]);
-  assert.equal(b.posts[0]!.average, 163);
-  assert.deepEqual(b.coverage, { need: 3, have: 2 });
+  assert.equal(calls, 1, '거절 뒤 남은 글은 부르지 않음');
 });

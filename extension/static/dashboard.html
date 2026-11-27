@@ -296,21 +296,22 @@
     <div class="ov-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
     <p class="ov-state-title" id="du-state-title"></p>
     <p class="ov-state-desc" id="du-state-desc"></p>
+    <button type="button" class="btn-secondary" id="du-retry" hidden>다시 받기</button>
   </div>
   <div id="du-body" hidden>
   <div class="cards">
     <div class="card" title="조회수 × 평균 사용시간을 모든 게시글에 대해 더한 값이에요. 독자가 글을 읽으며 머문 시간의 합계예요."><div class="label">총 사용시간</div><div class="value" id="du-total">-</div></div>
     <div class="card" title="총 사용시간 ÷ 조회수"><div class="label">조회 1회당 평균</div><div class="value" id="du-avg">-</div></div>
     <div class="card"><div class="label">게시글 조회수</div><div class="value" id="du-views">-</div></div>
-    <div class="card" title="순위에 조회가 나온 (게시글, 날짜) 중 사용시간을 받은 비율이에요. 100%가 아니면 아직 받는 중이에요."><div class="label">받은 비율</div><div class="value" id="du-cover">-</div></div>
+    <div class="card" title="고른 기간에 조회수 순위에 나온 게시글 수예요."><div class="label">게시글</div><div class="value" id="du-count">-</div></div>
   </div>
   <div class="panel">
     <div class="du-head">
       <h2>기간별 사용시간</h2>
       <div class="du-seg" id="du-unit" role="group" aria-label="묶는 단위">
-        <button type="button" data-u="daily" class="active">일</button>
-        <button type="button" data-u="weekly">주</button>
-        <button type="button" data-u="monthly">월</button>
+        <button type="button" data-u="day" class="active">일</button>
+        <button type="button" data-u="week">주</button>
+        <button type="button" data-u="month">월</button>
       </div>
     </div>
     <div class="chart-box"><div id="du-chart" class="chart"></div></div>
@@ -330,7 +331,7 @@
       </table>
     </div>
   </div>
-  <p class="du-note" id="du-note"></p>
+  <p class="du-note"><span id="du-note"></span> <button type="button" class="du-link" id="du-refresh">새로 받기</button></p>
   </div>
   </section>
   <section class="view" data-view="referer" hidden>
