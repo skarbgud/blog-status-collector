@@ -127,7 +127,9 @@ export async function fetchLiveDurations(http: StatGetter, blogId: string, postI
         }
       } catch (e) {
         if (e instanceof SessionExpiredError || e instanceof ClientBlockedError) {
-          result.stopped ??= '크리에이터 어드바이저가 요청을 거절했어요. 크롬에서 크리에이터 어드바이저(creator-advisor.naver.com)를 한 번 열어 로그인을 확인해 주세요.';
+          // 원인(HTTP 401/403, 리다이렉트, JSON이 아닌 응답)을 그대로 보여 준다. 로그인 문제가 아닐 수 있다(예: 출처 검사).
+          const why = e.message.replace(/^로그인(이 필요합니다| 만료:)\s*/, '').replace(/^\((.*)\)$/, '$1');
+          result.stopped ??= '크리에이터 어드바이저가 요청을 거절했어요. (원인: ' + why + ') 크롬에서 크리에이터 어드바이저(creator-advisor.naver.com)에 로그인돼 있는지 확인해 주세요.';
           return;
         }
         if (!(e instanceof HttpStatusError) && !(e instanceof DurationParseError)) throw e;
