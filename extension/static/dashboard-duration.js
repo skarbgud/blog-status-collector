@@ -135,6 +135,13 @@
     try {
       const d = await get(Object.assign({ from: range.from, to: range.to, unit }, refresh ? { refresh: '1' } : {}));
       if (my !== seq) return;
+      // 화면 파일은 새로 읽혔는데 확장 백그라운드(오프스크린)가 예전 버전으로 떠 있으면 응답 모양이 다르다
+      if (!d || !Array.isArray(d.periods) || !Array.isArray(d.posts) || !d.total) {
+        data = null;
+        loadedKey = null;
+        state('확장을 새로고침해 주세요', 'chrome://extensions에서 이 확장의 새로고침(↻)을 누른 뒤 이 탭을 다시 열어 주세요. 화면과 확장의 버전이 달라요.', false);
+        return;
+      }
       data = d;
       unit = d.unit || unit; // 공유 화면은 받은 단위 그대로 보여 준다
       loadedKey = unit + '|' + range.from + '|' + range.to;
