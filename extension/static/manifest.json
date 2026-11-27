@@ -4,7 +4,7 @@
   "version": "0.3.0",
   "description": "네이버 블로그 통계를 내 브라우저 안에서 수집·저장한다. 데이터는 이 브라우저 안에만 둔다(직접 공유할 때만 암호화해서 내보낸다).",
   "minimum_chrome_version": "116",
-  "permissions": ["offscreen", "unlimitedStorage", "alarms", "cookies"],
+  "permissions": ["offscreen", "unlimitedStorage", "alarms", "cookies", "declarativeNetRequestWithHostAccess"],
   "host_permissions": ["https://blog.stat.naver.com/*", "https://creator-advisor.naver.com/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "options_page": "options.html",

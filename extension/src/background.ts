@@ -72,12 +72,35 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) kick('alarm').catch(warn('alarm'));
 });
 
-type BgMsg = { target?: string; type?: string; text?: string; title?: string; days?: number };
+/**
+ * 크리에이터 어드바이저는 채널ID 경로 Referer를 요구한다(일반 Referer는 403). Referer는 fetch로 못 바꾸는 헤더라,
+ * 우리 확장 요청(tabId -1)에만 적용되는 declarativeNetRequest 세션 규칙으로 설정한다. 사용자가 직접 여는 탭은 건드리지 않는다.
+ */
+async function setCreatorReferer(channelId: string): Promise<void> {
+  if (!/^[A-Za-z0-9_-]{1,40}$/.test(channelId)) throw new Error('채널ID 형식 오류');
+  const referer = 'https://creator-advisor.naver.com/naver_blog/' + channelId + '/integrated-analysis';
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [7701],
+    addRules: [{
+      id: 7701,
+      priority: 1,
+      action: { type: chrome.declarativeNetRequest.RuleActionType.MODIFY_HEADERS,
+        requestHeaders: [{ header: 'referer', operation: chrome.declarativeNetRequest.HeaderOperation.SET, value: referer }] },
+      condition: { urlFilter: '||creator-advisor.naver.com/api/', resourceTypes: [chrome.declarativeNetRequest.ResourceType.XMLHTTPREQUEST], tabIds: [-1] },
+    }],
+  });
+}
+
+type BgMsg = { target?: string; type?: string; text?: string; title?: string; days?: number; channelId?: string };
 
 chrome.runtime.onMessage.addListener((msg: BgMsg, _sender, sendResponse) => {
   if (msg.target !== 'background') return;
   if (msg.type === 'ensure-offscreen') {
     ensureOffscreen().then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
+  if (msg.type === 'creator-referer') {
+    setCreatorReferer(msg.channelId ?? '').then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String(e) }));
     return true;
   }
   if (msg.type === 'collect-now') {

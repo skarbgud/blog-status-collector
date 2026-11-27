@@ -14,6 +14,7 @@ import { getSetting, setSetting } from './core/sql.js';
 import { readStatus, type StoredStatus } from './core/status.js';
 import { refreshToday, remainingToday } from './core/today.js';
 import { DURATION_UNITS, fetchLiveDurations, postsInRange, type DurationUnit } from './core/post-duration.js';
+import { creatorSigner, ensureCreatorReferer } from './core/creator.js';
 import { isDate } from './core/dates.js';
 
 const db = new Db();
@@ -179,7 +180,8 @@ async function postDuration(params: Record<string, string>): Promise<{ status: n
       const today = kstDate(0);
       const remaining = await remainingToday(db, today);
       if (remaining <= 0) return { status: 429, body: { message: '오늘 요청 상한을 다 써서 사용시간을 받을 수 없어요. 내일 다시 열어 주세요.' } };
-      const client = new StatClient({ maxRequests: remaining, log });
+      await ensureCreatorReferer(blogId); // 크리에이터 어드바이저 Referer 규칙(없으면 403)
+      const client = new StatClient({ maxRequests: remaining, log, ...creatorSigner(log) });
       const startedAt = new Date().toISOString();
       try {
         const live = await fetchLiveDurations(client, blogId, ids, unit, from, to, log);

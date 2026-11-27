@@ -93,6 +93,13 @@ export interface StatClientOptions {
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
   log?: (level: 'info' | 'warn', message: string) => void;
+  /** 요청마다 더할 헤더(크리에이터 어드바이저 서명 등). 호스트별로 달라질 수 있어 URL을 받는다. */
+  extraHeaders?: (url: URL) => Promise<Record<string, string>>;
+  /**
+   * 403을 받았을 때 호출. true면 "고쳤으니 다시"(키 갱신 등 → 재시도), false면 로그인 만료로 처리한다.
+   * 없으면 403은 늘 로그인 만료다(기존 동작).
+   */
+  onForbidden?: (url: URL, body: string) => Promise<boolean>;
 }
 
 const RETRY_STATUS = new Set([429, 502, 503, 504]);
@@ -239,12 +246,13 @@ export class StatClient {
   private async send(url: URL): Promise<StatResponse & { retryAfter: string | null }> {
     let res: Response;
     try {
+      const extra = this.opts.extraHeaders ? await this.opts.extraHeaders(url) : {};
       res = await this.fetchFn(url, {
         method: 'GET',
         credentials: 'include',
         cache: 'no-store',
         redirect: 'manual', // 로그인 만료 시 nid.naver.com 리다이렉트를 따라가지 않고 감지한다
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json', ...extra },
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (e) {
@@ -253,6 +261,12 @@ export class StatClient {
     }
     if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
       throw this.expire('로그인 페이지로 이동하는 응답(리다이렉트)');
+    }
+    // 403은 크리에이터 어드바이저의 서명키 만료일 수 있다(onForbidden이 키를 새로 받고 재시도를 요청). 401은 늘 로그인 만료.
+    if (res.status === 403 && this.opts.onForbidden) {
+      const body = await res.text().catch(() => '');
+      if (await this.opts.onForbidden(url, body)) throw new TransientError('서명키 갱신 후 재시도');
+      throw this.expire('HTTP 403 (요청이 거절됨)');
     }
     if (res.status === 401 || res.status === 403) {
       throw this.expire('HTTP ' + res.status);
