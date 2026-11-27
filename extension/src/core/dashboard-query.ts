@@ -4,8 +4,9 @@
 import { addDays, isDate } from './dates.js';
 import { computeTrends, historyFrom, WINDOW_DAYS, type TrendReport } from './keyword-trends.js';
 import { describeUrl } from './referer-url.js';
-import { getSetting, type Sql } from './sql.js';
+import { getSetting, type Row, type Sql } from './sql.js';
 import type { StoredStatus } from './status.js';
+import { readToday, type TodaySnapshot } from './today.js';
 
 export const DEFAULT_DAYS = 30;
 export const MAX_DAYS = 366;
@@ -53,6 +54,8 @@ export class DashboardQuery {
         case 'session': return ok(session(status));
         case 'referrer-details': return ok(await this.referrerDetails(await this.period(params)));
         case 'place-queries': return ok(await this.placeQueries(await this.period(params)));
+        case 'today-details': return ok(await this.todayDetails());
+        case 'today-places': return ok(await this.todayPlaces());
         default: return { status: 404, body: { status: 404, message: '없는 API: ' + name } };
       }
     } catch (e) {
@@ -179,14 +182,38 @@ export class DashboardQuery {
    */
   async referrerDetails(period: { from: string; to: string }) {
     const { from, to } = period;
-    const myBlogId = await getSetting(this.sql, 'blog_id');
     const refRows = await this.sql.query(
       'SELECT stat_date, referrer_name, search_engine, visits FROM referrer_daily WHERE stat_date BETWEEN ? AND ?', [from, to]);
-    const total = refRows.reduce((a, r) => a + Number(r.visits), 0);
     const urlRows = await this.sql.query(
       'SELECT stat_date, referrer_name, url AS text, visits FROM referrer_url_daily WHERE stat_date BETWEEN ? AND ?', [from, to]);
     const qRows = await this.sql.query(
       'SELECT stat_date, referrer_name, search_query AS text, visits FROM search_query_daily WHERE stat_date BETWEEN ? AND ?', [from, to]);
+    return this.buildDetails(from, to, refRows, urlRows, qRows);
+  }
+
+  /**
+   * 오늘 유입(집계 중). core/today.ts가 받아 둔 한 벌을 referrer-details와 같은 모양으로 돌려준다(화면이 같은 그리기를 쓴다).
+   * 아직 안 받았거나 날짜가 지났으면 available=false. 네트워크 요청은 하지 않는다(받기는 오프스크린의 today-refresh).
+   */
+  async todayDetails() {
+    const date = this.today();
+    const snap = await readToday(this.sql);
+    if (!snap || snap.date !== date) return { available: false, date };
+    const rows = snapRows(snap);
+    const built = await this.buildDetails(date, date, rows.ref, rows.url, rows.query);
+    return { ...built, available: true, date, fetchedAt: snap.fetchedAt, urlsComplete: snap.urlsComplete };
+  }
+
+  /** 오늘 유입의 플레이스 검색어(place-queries와 같은 모양). */
+  async todayPlaces() {
+    const snap = await readToday(this.sql);
+    if (!snap || snap.date !== this.today()) return [];
+    return buildPlaceQueries(snap.urls.map((u) => ({ url: u.url, visits: u.visits })), await getSetting(this.sql, 'blog_id'));
+  }
+
+  private async buildDetails(from: string, to: string, refRows: Row[], urlRows: Row[], qRows: Row[]) {
+    const myBlogId = await getSetting(this.sql, 'blog_id');
+    const total = refRows.reduce((a, r) => a + Number(r.visits), 0);
     const titles = urlRows.length > 0 ? await this.postTitles() : new Map<string, string>();
 
     interface Ref { name: string; searchEngine: boolean; visits: number; byDay: Map<string, number>;
@@ -252,22 +279,11 @@ export class DashboardQuery {
 
   /** 플레이스 URL에서 뽑은 검색어를 방문수 순서로 모은다(places: 그 검색어로 들어온 플레이스 번호들). */
   async placeQueries(period: { from: string; to: string }) {
-    const myBlogId = await getSetting(this.sql, 'blog_id');
     const rows = await this.sql.query(
       'SELECT url, SUM(visits) AS visits FROM referrer_url_daily WHERE stat_date BETWEEN ? AND ? GROUP BY url',
       [period.from, period.to]);
-    const by = new Map<string, { visits: number; places: Set<string> }>();
-    for (const r of rows) {
-      const info = describeUrl(String(r.url), myBlogId);
-      if (!info.placeQuery) continue;
-      const e = by.get(info.placeQuery) ?? { visits: 0, places: new Set<string>() };
-      e.visits += Number(r.visits);
-      if (info.placeId) e.places.add(info.placeId);
-      by.set(info.placeQuery, e);
-    }
-    return [...by.entries()]
-      .sort(([qa, a], [qb, b]) => b.visits - a.visits || cmp(qa, qb))
-      .map(([query, e]) => ({ query, visits: e.visits, places: [...e.places].sort() }));
+    return buildPlaceQueries(rows.map((r) => ({ url: String(r.url), visits: Number(r.visits) })),
+      await getSetting(this.sql, 'blog_id'));
   }
 
   // ---- 검색어 변화 (KeywordTrendController) ----
@@ -342,4 +358,29 @@ function session(status: StoredStatus | null) {
     return { state: 'WARN', daysLeft: null, expiresAt: null, message: '마지막 수집에 문제가 있었습니다: ' + message };
   }
   return { state: 'OK', daysLeft: null, expiresAt: null, message };
+}
+
+/** 플레이스 URL에서 뽑은 검색어를 방문수 순서로 모은다(places: 그 검색어로 들어온 플레이스 번호들). */
+function buildPlaceQueries(rows: { url: string; visits: number }[], myBlogId: string | null) {
+  const by = new Map<string, { visits: number; places: Set<string> }>();
+  for (const r of rows) {
+    const info = describeUrl(r.url, myBlogId);
+    if (!info.placeQuery) continue;
+    const e = by.get(info.placeQuery) ?? { visits: 0, places: new Set<string>() };
+    e.visits += r.visits;
+    if (info.placeId) e.places.add(info.placeId);
+    by.set(info.placeQuery, e);
+  }
+  return [...by.entries()]
+    .sort(([qa, a], [qb, b]) => b.visits - a.visits || cmp(qa, qb))
+    .map(([query, e]) => ({ query, visits: e.visits, places: [...e.places].sort() }));
+}
+
+/** 오늘 스냅샷을 확정 표 조회와 같은 행 모양으로(stat_date, referrer_name, search_engine, visits, text). */
+function snapRows(snap: TodaySnapshot): { ref: Row[]; url: Row[]; query: Row[] } {
+  return {
+    ref: snap.rows.map((r) => ({ stat_date: r.date, referrer_name: r.referrer, search_engine: r.searchEngine ? 1 : 0, visits: r.visits })),
+    url: snap.urls.map((u) => ({ stat_date: u.date, referrer_name: u.referrer, text: u.url, visits: u.visits })),
+    query: snap.queries.map((q) => ({ stat_date: q.date, referrer_name: q.referrer, text: q.query, visits: q.visits })),
+  };
 }

@@ -165,7 +165,8 @@
     const from = ($('from') as HTMLInputElement | null)?.value ?? '';
     const to = ($('to') as HTMLInputElement | null)?.value ?? '';
     // 기간이 있는 응답은 모두 지금 기간이어야 한다(이전 기간 응답이 섞이지 않게).
-    const stale = [...recorded.values()].some((b) => {
+    const stale = [...recorded.entries()].some(([name, b]) => {
+      if (name.startsWith('today-')) return false; // 오늘 유입은 공유하지 않는다(share-codec EXCLUDED)
       const r = b as { from?: unknown; to?: unknown } | null;
       return !!r && typeof r === 'object' && typeof r.from === 'string' && (r.from !== from || r.to !== to);
     });

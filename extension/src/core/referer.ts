@@ -226,9 +226,10 @@ export async function fetchRefererUrls(http: StatGetter, date: string, rows: Ref
  * 한 유입처의 검색어를 못 받아도 그 날의 나머지는 살린다. 로그인 만료·상한은 그대로 멈춘다.
  */
 export async function fetchRefererDay(http: StatGetter, date: string, querySize = 100,
-  log: JobLog = () => {}, withUrls = false): Promise<RefererDay> {
+  log: JobLog = () => {}, withUrls = false, includeToday = false): Promise<RefererDay> {
   const day = parseReferer(await http.get(REFERER_PATH, refererParams(date), date), date);
-  if (day.today) return day;
+  // 오늘(집계 중)은 저장하지 않으므로 보통 상세를 받지 않는다. "오늘 유입 보기"(core/today.ts)만 includeToday로 받는다.
+  if (day.today && !includeToday) return day;
   const engines = day.rows.filter((row) => row.searchEngine);
   const parts: SearchQueryRow[][] = engines.map(() => []);
   // 검색어와 상세 URL을 함께 동시에 받는다(실제 동시 요청 수는 StatClient가 정한다).

@@ -9,7 +9,8 @@ export const SHARE_PREFIX = 's=';
 /** 풀었을 때 크기 상한(압축 폭탄 방지). 30일 화면 전부가 수백 KB라 넉넉하다. */
 export const MAX_DECODED_BYTES = 20 * 1024 * 1024;
 /** 공유에서 빼는 응답: 로그인 쿠키 상태는 보는 사람과 상관없다. */
-export const EXCLUDED = new Set(['session']);
+/** 오늘 유입(집계 중)은 공유 기간 밖이고 계속 바뀌어서 넣지 않는다. */
+export const EXCLUDED = new Set(['session', 'today-details', 'today-places', 'today-refresh']);
 const NAME = /^[a-z][a-z-]{0,40}$/;
 
 export interface SharePayload {

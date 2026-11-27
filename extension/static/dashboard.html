@@ -294,6 +294,11 @@
   </div>
   <div class="panel rf">
     <div class="rf-tools">
+      <div class="seg" id="r-when" role="group" aria-label="언제 유입을 볼까요">
+        <button type="button" data-w="range" class="active">기간</button>
+        <button type="button" data-w="today" title="네이버가 아직 집계 중인 오늘 유입을 받아 봅니다. 확정값은 내일 다시 받아요.">오늘 (집계 중)</button>
+      </div>
+      <button type="button" id="r-today-refresh" hidden>새로고침</button>
       <div class="seg" id="r-mode" role="group" aria-label="보기">
         <button type="button" data-v="ref" class="active">유입처별</button>
         <button type="button" data-v="blog" title="'블로그 ○○' 배지가 붙은 줄만 블로그별로 모아 봅니다">블로그별</button>

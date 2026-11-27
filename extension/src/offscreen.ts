@@ -8,10 +8,11 @@ import {
 import { DashboardQuery } from './core/dashboard-query.js';
 import { fromBase64, looksLikeSqlite, toBase64 } from './core/base64.js';
 import { importExport } from './core/importer.js';
-import { StatClient, kstDate } from './core/naver.js';
+import { BudgetExceededError, SessionExpiredError, StatClient, kstDate } from './core/naver.js';
 import { migrate } from './core/schema.js';
 import { getSetting, setSetting } from './core/sql.js';
 import { readStatus, type StoredStatus } from './core/status.js';
+import { refreshToday } from './core/today.js';
 
 const db = new Db();
 let ready = migrate(db);
@@ -128,9 +129,31 @@ export interface RefetchEstimate {
 }
 type Handler = (msg: Msg) => Promise<unknown>;
 
+/**
+ * 오늘 유입(집계 중)을 네이버에서 받아 저장하고 화면용 응답(today-details)을 돌려준다.
+ * 대시보드가 fetch('/api/dashboard/today-refresh')로 부른다. 동시에 여러 번 눌러도 한 번만 받는다.
+ * 수집 회차와 겹쳐도 된다(요청 수가 적고, 저장하는 곳이 다르다).
+ */
+let todayRun: Promise<unknown> | null = null;
+async function todayRefresh(): Promise<{ status: number; body: unknown }> {
+  if (maintenance) return { status: 409, body: { message: '복원·가져오기 중이에요. 끝난 뒤 다시 눌러 주세요.' } };
+  await ready;
+  try {
+    todayRun ??= refreshToday({ sql: db, makeClient: (max) => new StatClient({ maxRequests: max, log }), log })
+      .finally(() => { todayRun = null; });
+    await todayRun;
+  } catch (e) {
+    const message = e instanceof SessionExpiredError ? '네이버 로그인이 필요해요. 크롬에서 네이버에 로그인한 뒤 다시 눌러 주세요.'
+      : e instanceof BudgetExceededError ? e.message
+      : '오늘 유입을 받지 못했어요. 잠시 뒤 다시 눌러 주세요. (' + (e instanceof Error ? e.message : String(e)) + ')';
+    return { status: 502, body: { message } };
+  }
+  return query.handle('today-details', {}, await stored());
+}
+
 const handlers: Record<string, Handler> = {
   status: () => status(),
-  api: async (m) => query.handle(m.name ?? '', m.params ?? {}, await stored()),
+  api: async (m) => (m.name === 'today-refresh' ? todayRefresh() : query.handle(m.name ?? '', m.params ?? {}, await stored())),
   'export-db': () => exclusive(async () => ({ base64: toBase64(await db.exportFile()) })),
   'import-db': (m) => exclusive(async () => {
     const bytes = fromBase64(m.base64 ?? '');

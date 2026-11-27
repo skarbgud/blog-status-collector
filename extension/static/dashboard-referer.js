@@ -1,5 +1,7 @@
 // 유입분석 탭: 모든 유입처의 상세 유입경로(URL·검색어)를 처음부터 펼쳐 전문으로 보여 준다.
 // 사이드바 기간이 바뀌면(blog:range) 다시 불러온다. 데이터는 /api/dashboard/referrer-details, place-queries.
+// "오늘 (집계 중)"을 고르면 오늘 유입을 본다: today-details(저장된 값) / today-refresh(네이버에서 새로 받기, 요청 약 10회),
+// today-places. 오늘 값은 확정 표에 넣지 않으므로 사이드바 기간과 상관없다.
 // URL·검색어·라벨은 외부 값이므로 textContent로만 넣고(innerHTML 금지), 링크는 http(s) URL만 만든다.
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -15,6 +17,12 @@
   let mode = 'ref';
   /** 블로그별 보기의 종류 필터('' = 전체). '다른 블로그 글', '이웃 관리 화면' 같은 라벨 */
   let kind = '';
+  /** 'range' 사이드바 기간 | 'today' 오늘(집계 중) */
+  let when = 'range';
+  let lastRange = null;
+  /** 오늘 값이 이보다 오래됐으면 "오늘"을 고를 때 자동으로 새로 받는다 */
+  const TODAY_STALE_MS = 10 * 60 * 1000;
+  const hm = (iso) => new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 
   function el(tag, cls, text) {
     const e = document.createElement(tag);
@@ -222,7 +230,9 @@
       }
       list.appendChild(box);
     }
-    if (shownRefs === 0) list.appendChild(el('p', 'rf-empty', q ? '찾는 줄이 없습니다.' : '이 기간에 유입경로가 없습니다.'));
+    if (shownRefs === 0) {
+      list.appendChild(el('p', 'rf-empty', q ? '찾는 줄이 없습니다.' : when === 'today' ? '오늘은 아직 들어온 유입이 없어요.' : '이 기간에 유입경로가 없습니다.'));
+    }
     $('r-foot').textContent = data.unclassified > 0 ? '분류 안 됨 ' + nf.format(data.unclassified) + '개 (라벨 대신 주소로 표시)' : '';
   }
 
@@ -232,7 +242,7 @@
     $('r-place-sub').textContent = items.length ? '플레이스 주소에 담긴 검색어 ' + items.length + '개' : '';
     if (items.length === 0) {
       const tr = el('tr');
-      const td = el('td', null, '이 기간에 플레이스 검색어가 없습니다.');
+      const td = el('td', null, when === 'today' ? '오늘은 아직 플레이스 검색어가 없어요.' : '이 기간에 플레이스 검색어가 없습니다.');
       td.colSpan = 3;
       td.style.color = 'var(--muted)';
       tr.appendChild(td);
@@ -247,6 +257,8 @@
   }
 
   async function load(range) {
+    lastRange = range;
+    if (when === 'today') return; // 오늘 보기 중에는 기간만 기억해 두고, "기간"으로 돌아갈 때 불러온다
     const my = ++seq;
     $('r-note').textContent = '불러오는 중…';
     try {
@@ -264,6 +276,47 @@
       $('r-list').replaceChildren();
       $('r-note').textContent = '유입분석을 불러오지 못했습니다: ' + e.message;
     }
+  }
+
+  /** 오늘(집계 중) 유입. refresh면 네이버에서 새로 받고, 아니면 저장된 값을 보여 주되 없거나 오래됐으면 새로 받는다. */
+  async function loadToday(refresh) {
+    const my = ++seq;
+    const btn = $('r-today-refresh');
+    btn.disabled = true;
+    $('r-note').textContent = refresh ? '네이버에서 오늘 유입을 받는 중이에요…' : '불러오는 중…';
+    try {
+      let details = refresh ? await get('today-refresh') : await get('today-details');
+      if (!refresh && (!details.available || Date.now() - Date.parse(details.fetchedAt) > TODAY_STALE_MS)) {
+        if (my !== seq) return;
+        $('r-note').textContent = '네이버에서 오늘 유입을 받는 중이에요…';
+        details = await get('today-refresh');
+      }
+      const places = await get('today-places');
+      if (my !== seq) return;
+      data = details;
+      $('r-range').textContent = '오늘 ' + details.date + ' · ' + hm(details.fetchedAt) + ' 기준 · 유입 ' + nf.format(details.total)
+        + '회 · 유입처 ' + details.referrers.length + '곳';
+      $('r-note').textContent = '오늘은 네이버가 아직 집계 중이라 숫자가 계속 바뀌어요. 확정값은 내일 수집에서 다시 받아요.'
+        + (details.urlsComplete ? '' : ' 일부 유입처의 상세 URL을 받지 못했어요. 새로고침하면 다시 받아요.');
+      render();
+      renderPlaces(places);
+    } catch (e) {
+      if (my !== seq) return;
+      data = null;
+      $('r-list').replaceChildren();
+      $('r-range').textContent = '오늘';
+      $('r-note').textContent = e.message;
+    } finally {
+      if (my === seq) btn.disabled = false;
+    }
+  }
+
+  function setWhen(w) {
+    when = w;
+    document.querySelectorAll('#r-when button').forEach((x) => x.classList.toggle('active', x.dataset.w === w));
+    $('r-today-refresh').hidden = w !== 'today';
+    if (w === 'today') loadToday(false);
+    else if (lastRange) load(lastRange);
   }
 
   // CSV(UTF-8 BOM). 스프레드시트 수식으로 읽히지 않게 =,+,-,@로 시작하는 칸은 앞에 '를 붙인다.
@@ -305,5 +358,9 @@
     document.querySelectorAll('#r-mode button').forEach((x) => x.classList.toggle('active', x === b));
     render();
   }));
+  document.querySelectorAll('#r-when button').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.w !== when) setWhen(b.dataset.w);
+  }));
+  $('r-today-refresh').addEventListener('click', () => loadToday(true));
   window.addEventListener('blog:range', (e) => load(e.detail));
 })();
